@@ -370,10 +370,16 @@ int main(int argc, char *argv[])
       }
       // Time-sort and de-duplicate clustvec
       sort(clustvec.begin(), clustvec.end(), early_hldet());
-      clustvec2={};
+      // OK here
+     clustvec2={};
       clustvec2.push_back(clustvec[0]);
       for(i=1; i<long(clustvec.size()); i++) {
-	if(clustvec[i].MJD != clustvec2[clustvec2.size()-1].MJD && clustvec[i].RA != clustvec2[clustvec2.size()-1].RA) {
+	// if(clustvec[i].MJD != clustvec2[clustvec2.size()-1].MJD && clustvec[i].RA != clustvec2[clustvec2.size()-1].RA) {
+	// Note removal of RA match condition, commented out above. It seems that including this was illogical,
+	// since an object could be moving due North or South and have the same RA at different times. Nonetheless,
+	// not quite remembering why I put it in to begin with, I am a little uneasy about removing it, even though
+	// it was actually observed to constitute a bug, in the form of a dropped observation, on May 31, 2023.
+	if(clustvec[i].MJD != clustvec2[clustvec2.size()-1].MJD) {
 	  // The new point is not redundant: add it.
 	  clustvec2.push_back(clustvec[i]);
 	}
