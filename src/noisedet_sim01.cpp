@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-imagerad" || string(argv[i]) == "-imagerad" ) {
+    } else if(string(argv[i]) == "-imrad" || string(argv[i]) == "-imagerad" ) {
       if(i+1 < argc) {
 	//There is still something to read;
         imagerad=stod(argv[++i]);
