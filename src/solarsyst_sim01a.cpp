@@ -54,7 +54,6 @@ int main(int argc, char *argv[])
   double imrad = IMAGERAD; // radius from image center to most distant corner (deg).
   int planetfile_startpoint=0;
   int planetfile_endpoint=0;
-  long double GMsun = 0.0L;
   double Hmin = 0.0l;
   double Hmax = 0.0l;
   double Hslope = 0.0l;
@@ -118,23 +117,13 @@ int main(int argc, char *argv[])
   double plxsin = -0.500958l;
   point3LD outpos = point3LD(0,0,0);
   point3LD outvel = point3LD(0,0,0);
-  point3LD startpos = point3LD(0,0,0);
-  point3LD startvel = point3LD(0,0,0);
-  point3LD Keppos = point3LD(0,0,0);
-  point3LD Kepvel = point3LD(0,0,0);
-  point3LD unitbary = point3LD(0,0,0);
-  point3LD lvec = point3LD(0L,0L,0L);
-  double newRA,newDec;
   long double outRA,outDec;
-  double racenter,deccenter,dist,pa,posRA,posDec,imRA,imDec;
-  long double ldRA,ldDec,vesc;
-  long double E,lscalar,a,e,coshH,H0,radvel,omega,t0,mjd_infall;
+  double dist;
   int fieldnum=0;
   int MJDcol = 1;
   int RAcol = 2;
   int Deccol = 3;
   ofstream outstream1;
-  long double random_number;
   long double astromsigma=0.1L;
   string seedstring;
   int goodsimct=0;
@@ -234,7 +223,6 @@ int main(int argc, char *argv[])
 	    return(1);
 	  } else {
 	    cout << "MG for planet " << planetct << " read as " << planetmasses[planetct] << " km^3/sec^2\n";
-	    if(planetct==pctSun) GMsun = planetmasses[planetct];
 	  }
 	}
 	for(planetct=0;planetct<planetnum;planetct++) {
@@ -255,7 +243,7 @@ int main(int argc, char *argv[])
 	  read_horizons_fileLD(planetfile,mjdtest,temppos,tempvel);
 	  if(planetct==0) planetmjd=mjdtest;
 	  else {
-	    for(j=0;j<planetmjd.size();j++) {
+	    for(j=0;j<long(planetmjd.size());j++) {
 	      if(mjdtest[j]!=planetmjd[j]) {
 		cout << "ERROR: time vectors do not match for input planet files\n";
 		cout << planetct+1 << " and 1!\n";
@@ -263,7 +251,7 @@ int main(int argc, char *argv[])
 	      }
 	    }
 	  }
-	  for(j=0;j<temppos.size();j++) {
+	  for(j=0;j<long(temppos.size());j++) {
 	    planetpos.push_back(temppos[j]);
 	  }
 	  if(planetct == pctEarth) Earthpos = temppos;
@@ -586,7 +574,7 @@ int main(int argc, char *argv[])
   // Match mjdstart and mjdend to planet file.
   
   planetfile_startpoint = planetfile_endpoint = -99;
-  for(j=0;j<planetmjd.size();j++) {
+  for(j=0;j<long(planetmjd.size());j++) {
     if(fabs(planetmjd[j]-mjdstart) < IMAGETIMETOL/SOLARDAY) planetfile_startpoint = j;
     if(fabs(planetmjd[j]-mjdend) < IMAGETIMETOL/SOLARDAY) planetfile_endpoint = j;
   }
@@ -633,7 +621,7 @@ int main(int argc, char *argv[])
     cout << imageMJD.size() << " " << imageMJD[imageMJD.size()-1] << " " << imageRA[imageMJD.size()-1] << " " << imageDec[imageMJD.size()-1] << "\n";
   }
   imnum=imageMJD.size();
-  if(imnum<2 || imageRA.size()!=imnum || imageDec.size()!=imnum) {
+  if(imnum<2 || long(imageRA.size())!=imnum || long(imageDec.size())!=imnum) {
     cerr  << fixed << setprecision(6) << "Error: image time vectors too short, or of unequal length:\n";
     cerr  << fixed << setprecision(6) << imnum << " " << imageRA.size() << " " << imageDec.size() << "\n";
     return(1);
@@ -759,7 +747,7 @@ int main(int argc, char *argv[])
 	obsmag = absmag + 2.5*log10(obsdist*obsdist*sundist*sundist/AU_KM/AU_KM/AU_KM/AU_KM);
 	if(obsmag<limiting_mag  && (sundist/AU_KM)<=maxdetdist) {
 	  //cout << simct << ": obsmag = " << obsmag << ", sundist = " << sundist/AU_KM << ", obsdist = " << obsdist/AU_KM << "\n";
-	  // Note: maxdetdisk is designed to enable the artificial
+	  // Note: maxdetdist is designed to enable the artificial
 	  // imposition of a maximum heliocentric distance, beyond which
 	  // objects are simply not considered. The original planned use
 	  // case is to examine the detectability of NEOs less than 1AU
