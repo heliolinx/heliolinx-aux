@@ -16,6 +16,7 @@
 #define PHASE_G 0.15
 #define ZMAXFRAC 0.3 // ecliptic Z-coordinate can be no larger than this fraction
                      // of the observer distance in the x-y plane.
+#define ZVELFRAC 1.0e30 
 
 // Note: configfile contains the masses and ephemerides for all of the planets.
 // configfile also contains the name of an observatory code file. The input
@@ -29,7 +30,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: hypsim02a -cfg configfile -ranseed random_number_seed -times timefile -hyp hypothesis_file -unbound 0 -mjdref mjdref -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -maglim limiting_magnitude -minsunelong minimum_solar_elongation(deg) -Hmin min_Hmag -Hmax max_Hmag -Hslope Hmag_powerlaw_slope -simnum simnum -outfile outfile \n";
+  cerr << "Usage: vanehypsim01a -cfg configfile -ranseed random_number_seed -times timefile -hyp hypothesis_file -unbound 0 -mjdref mjdref -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -maglim limiting_magnitude -minsunelong minimum_solar_elongation(deg) -minalt minimum_altitude -Hmin min_Hmag -Hmax max_Hmag -Hslope Hmag_powerlaw_slope -zvelfrac z_velocity_fraction -simnum simnum -outfile outfile \n";
 }
     
 int main(int argc, char *argv[])
@@ -125,7 +126,11 @@ int main(int argc, char *argv[])
   point3LD Sunrefpos = point3LD(0L,0L,0L);
   double lambda_Earth = 0.0l;
   double Earthrefdist=0.0l;
-
+  long double anglefuzz = 5.0;
+  long double zmaxfrac = ZMAXFRAC;
+  long double zvelfrac = ZVELFRAC;
+  long double vlim = 0.0;
+  
   if(argc<15) {
     show_usage();
     return(1);
@@ -289,6 +294,17 @@ int main(int argc, char *argv[])
 	  cerr << "Error reading config file\n";
 	  return(1);
 	} else cout << "Astrometric error read as " << astromsigma << " arcsec\n";
+	// Read angular fuzz (for solar elongation or phase angle) in degrees.
+	status=readconfigLD(instream1,&anglefuzz);
+	while(status==1) {
+	  // The line we have just read is a pure comment line,
+	  // so we just want to skip to the next one.
+	  status=readconfigLD(instream1,&anglefuzz);
+	}
+	if(status<0) {
+	  cerr << "Error reading config file\n";
+	  return(1);
+	} else cout << "Angular fuzz read as " << anglefuzz << " degrees\n";
 	// Close input stream that was reading the config file.
 	instream1.close();
 	configread=1;
@@ -453,6 +469,28 @@ int main(int argc, char *argv[])
       }
       else {
 	cerr << "Absolute magnitude slope keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-zmaxfrac") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	zmaxfrac=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Z-position scaling keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-zvelfrac") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	zvelfrac=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Z-velocity scaling keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -640,17 +678,63 @@ int main(int argc, char *argv[])
       // Above-calculated value of zmax (whether imaginary or not)
       // is irrelevant since there is no requirement for the orbits to be bound.
       // Use the default geometrical limit instead.
-      zmax = ZMAXFRAC*rho;
-    } else if(unbound==0 && zmax>ZMAXFRAC*rho) {
+      zmax = zmaxfrac*rho;
+    } else if(unbound==0 && zmax>zmaxfrac*rho) {
       // Orbit is required to be bound, but resulting zmax was
       // more permissive than geometrical limit. Reset to geometrical limit.
-      zmax = ZMAXFRAC*rho;
+      zmax = zmaxfrac*rho;
     }
     cout << "Hypothesis " << hypct << ": " << hypdist[hypct] << " " << hypvel[hypct] << " " << hypacc[hypct] << " yields xy projected quantities as follows:\n";
     cout << "Sun dist (rho): " << rho/AU_KM << ", Earth dist: " << obsdist_ecl/AU_KM << ", tanvel=" << tanvelxy << ", radvel=" << rhodot << "\n";
     // Loop on simulated objects.
     simct=0;
     while(simct<simnum) {
+      // Re-calculate rho and associated quantities, now with
+      // angular fuzz on the phase or solar elongation.
+      if(M_PI/2.0l-fabs(delta_lambda) > rminsunelong) {
+	// Do calculation for a sun-target-observer phase angle near 90 degrees,
+	// since this is possible, but now add the angular fuzz
+	phaseang = M_PI; // Impossible, forces while-loop below to execute.
+	while((M_PI - phaseang - fabs(delta_lambda))<rminsunelong) {
+	  // We haven't chosen a viable phase angle yet
+	  phaseang = (90.0l - anglefuzz/2.0 + anglefuzz*unitvar(generator))/DEGPRAD;
+	}
+	rho = Earthrefdist*sin(M_PI - fabs(delta_lambda) - phaseang)/sin(phaseang);
+	obsdist_ecl = Earthrefdist*sin(fabs(delta_lambda))/sin(phaseang);
+	// Here's how we'd do it if phase angle were fixed at 90 deg:
+	//rho = Earthrefdist*cos(delta_lambda);
+	//obsdist_ecl = Earthrefdist*sin(fabs(delta_lambda));
+      } else {
+	// A phase angle of 90 degrees would imply the object is too close to the sun.
+	// Assume instead that it is near the minimum observable solar elongation.
+	sunelong = rminsunelong + anglefuzz*unitvar(generator)/DEGPRAD;
+	rho = Earthrefdist*sin(sunelong)/sin(sunelong+fabs(delta_lambda));
+	obsdist_ecl = Earthrefdist*sin(fabs(delta_lambda))/sin(sunelong+fabs(delta_lambda));
+      }
+      // Calculate value of rhodot required to produce specified lambda_doubledot
+      if(lambda_dot!=0.0l) rhodot = -rho*lambda_doubledot/2.0/lambda_dot;
+      else rhodot = 0.0l; // for now.
+
+      tanvelxy = rho*lambda_dot; // km/sec
+      xyvel = sqrt(tanvelxy*tanvelxy + rhodot*rhodot);
+      rmax = 2.0l*GMsun/xyvel/xyvel;
+      zmax = sqrt(rmax*rmax-rho*rho); // Imaginary if orbit is unbound
+      vesc = sqrt(2.0l*GMsun/rho);
+      if(unbound==0 && (xyvel>=vesc || !isnormal(zmax))) {
+	// We accidentally made an unbound orbit. Skip it.
+	continue;
+      }
+      if(unbound==1) {
+	// Above-calculated value of zmax (whether imaginary or not)
+	// is irrelevant since there is no requirement for the orbits to be bound.
+	// Use the default geometrical limit instead.
+	zmax = zmaxfrac*rho;
+      } else if(unbound==0 && zmax>zmaxfrac*rho) {
+	// Orbit is required to be bound, but resulting zmax was
+	// more permissive than geometrical limit. Reset to geometrical limit.
+	zmax = zmaxfrac*rho;
+      }
+   
       // Randomly assign an absolute magnitude H
       acoef = 1.0l/(Hslope*log(10.0));
       xmin = exp(Hmin/acoef);
@@ -675,7 +759,9 @@ int main(int argc, char *argv[])
       }
       if(unbound==1) {
 	// Allow startvel.z to range up to the escape velocity
-	startvel.z = -vesc + 2.0*vesc*unitvar(generator);
+	vlim = vesc;
+	if(vlim > xyvel*zvelfrac) vlim = xyvel*zvelfrac; // Apply user's more restrictive velocity limit
+	startvel.z = -vlim + 2.0*vlim*unitvar(generator);
       } else {
 	// Calculate a limiting absolute value for startvel.z
 	xyvel = sqrt(tanvelxy*tanvelxy + rhodot*rhodot);
@@ -683,7 +769,8 @@ int main(int argc, char *argv[])
 	  cerr << "Logic error in velocity management: tanvelxy, rhodot, xyvel, vesc = " << tanvelxy << " " << rhodot << " " << xyvel << " " << vesc << "\n";\
 	  return(4);
 	}
-	long double vlim = sqrt(vesc*vesc - xyvel*xyvel);
+	vlim = sqrt(vesc*vesc - xyvel*xyvel);
+	if(vlim > xyvel*zvelfrac) vlim = xyvel*zvelfrac; // Apply user's more restrictive velocity limit
 	// Randomly select a value of startvel.z that is guaranteed to keep the orbit bound.
 	startvel.z = -vlim + 2.0*vlim*unitvar(generator);
       }
