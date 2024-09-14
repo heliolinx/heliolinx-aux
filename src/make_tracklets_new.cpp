@@ -1,13 +1,4 @@
-// February 14, 2024: make_trailed_tracklets.cpp:
-// Like make_tracklets_new.cpp, but rather than implicitly assuming
-// that all detections are point sources, it uses trail length and
-// orientation to construct only tracklets composed of trailed detections
-// whose length and orientation are consistent with the motion implied
-// by the tracklet itself. To do this, requires image exposure time
-// and also two parameters specifying the matching tolerance for
-// trail length and orientation, 
-//
-// Description of related program make_tracklets_new:
+// April 18, 2023: make_tracklets_new.cpp:
 // Differs from the original C++ make_tracklets.cpp in that it uses
 // the same core algorithmic routines as the new, python-wrapped codes.
 // This requires abandoning some of the elegant efficiency of the
@@ -27,8 +18,6 @@
 #define MAGCOL 5
 #define BANDCOL 6
 #define OBSCODECOL 7
-#define TRAILPACOL 8
-#define TRAILLENCOL 9
 #define COLS_TO_READ 14
 #define MAXVEL 1.5 // Default max angular velocity in deg/day.
 #define MAXTIME (1.5/24.0) // Default max inter-image time interval
@@ -42,16 +31,14 @@
       
 static void show_usage()
 {
-  cerr << "Usage: make_trailed_tracklets -dets detfile -imgs imfile -outimgs output image file/ \n";
+  cerr << "Usage: make_tracklets_new -dets detfile -imgs imfile -outimgs output image file/ \n";
   cerr << "-pairdets paired detection file -tracklets tracklet file -trk2det output tracklet-to-detection file/ \n";
   cerr << "-colformat column format file -imrad image radius(deg)/ \n";
   cerr << "-maxtime max inter-image time interval (hr) -mintime min inter-image time interval (hr)/ \n";
   cerr << "-maxGCR maximum GRC -mintrkpts min. num. of tracklet points/ \n";
+  cerr << "-max_netl maximum number of points for a non-exclusive (overlap permitted) tracklet/ \n";
   cerr << "-minvel minimum angular velocity (deg/day) -maxvel maximum angular velocity (deg/day)/ \n";
-  cerr << "-minarc minimum total angular arc (arcsec) -siglenscale fractional trail length matching tolerance/ \n";
-  cerr << "-sigpascale trail orientation matching tolerance (arcsec; will be divided by trail length/ \n";
-  cerr << "to get matching tolerance in radians) -exptime exposure time (seconds) -earth earthfile/ \n";
-  cerr << "-obscode obscodefile -forcerun\n";
+  cerr << "-minarc minimum total angular arc (arcsec) -earth earthfile -obscode obscodefile -forcerun\n";
   cerr << "\nor, at minimum\n\n";
   cerr << "make_tracklets -dets detfile -earth earthfile -obscode obscodefile\n";
   cerr << "Note well that the minimum invocation will leave a bunch of things\n";
@@ -76,10 +63,10 @@ int main(int argc, char *argv[])
   int imct=0;
   string indetfile;
   string inimfile;
-  string outimfile;
   string earthfile;
   string obscodefile;
   string colformatfile;
+  string outimfile="outimfile01.txt";
   string pairdetfile="pairdetfile01.csv";
   string trackletfile="trackletfile01.csv";
   string trk2detfile="trk2detfile01.csv";
@@ -90,28 +77,24 @@ int main(int argc, char *argv[])
   int magcol = MAGCOL;
   int bandcol = BANDCOL;
   int obscodecol = OBSCODECOL;
-  int trail_PA_col = TRAILPACOL;
-  int trail_len_col = TRAILLENCOL;
-  int sigmag_col, sig_across_col, sig_along_col, known_obj_col, det_qual_col;
+  int trail_len_col, trail_PA_col, sigmag_col, sig_across_col, sig_along_col, known_obj_col, det_qual_col;
   trail_len_col = trail_PA_col = sigmag_col = sig_across_col = -1;
   sig_along_col = known_obj_col = det_qual_col = -1;
   int colreadct=0;
   ifstream instream1;
   ofstream outstream1;
   string stest;
-  int inimfile_set,outimfile_set,colformatfile_set;
-  inimfile_set = outimfile_set = colformatfile_set = 0;
-  int pairdetfile_default,trackletfile_default,trk2detfile_default,imagerad_default;
+  int inimfile_set,colformatfile_set;
+  inimfile_set = colformatfile_set = 0;
+  int outimfile_default,pairdetfile_default,trackletfile_default,trk2detfile_default,imagerad_default;
   int maxtime_default,mintime_default,minvel_default,maxvel_default;
-  int maxgcr_default,minarc_default,mintrkpts_default;
-  int exptime_default,siglenscale_default,sigpascale_default;
+  int maxgcr_default,minarc_default,mintrkpts_default,maxnetl_default;
   MakeTrackletsConfig config;
   
-  pairdetfile_default = trackletfile_default = trk2detfile_default = imagerad_default = 1;
+  outimfile_default = pairdetfile_default = trackletfile_default = trk2detfile_default = imagerad_default = 1;
   maxtime_default = mintime_default = minvel_default = maxvel_default = 1;
-  maxgcr_default = minarc_default = mintrkpts_default = 1;
-  exptime_default = siglenscale_default = sigpascale_default = 1;
-  
+  maxgcr_default = minarc_default = mintrkpts_default = maxnetl_default = 1;
+
   if(argc<7)
     {
       show_usage();
@@ -148,7 +131,7 @@ int main(int argc, char *argv[])
       if(i+1 < argc) {
 	//There is still something to read;
 	outimfile=argv[++i];
-	outimfile_set = 1;
+	outimfile_default = 0;
 	i++;
       }
       else {
@@ -296,7 +279,7 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-minarc") {
+    }  else if(string(argv[i]) == "-minarc") {
       if(i+1 < argc) {
 	//There is still something to read;
         config.minarc=stod(argv[++i]);
@@ -310,57 +293,6 @@ int main(int argc, char *argv[])
       }
       else {
 	cerr << "Minimum angular arc\nkeyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
-    } else if(string(argv[i]) == "-siglenscale") {
-      if(i+1 < argc) {
-	//There is still something to read;
-        config.siglenscale=stod(argv[++i]);
-	siglenscale_default = 0;
-	i++;
-	if(!isnormal(config.siglenscale) || config.siglenscale<=0.0l) {
-	  cerr << "Error: invalid fractional trail length uncertainty parameter\n";
-	  cerr << "(" << config.siglenscale << ") supplied.\n";
-	  return(2);
-	}
-      }
-      else {
-	cerr << "Fractional trail length uncertainty parameter\nkeyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
-    } else if(string(argv[i]) == "-sigpascale") {
-      if(i+1 < argc) {
-	//There is still something to read;
-        config.sigpascale=stod(argv[++i]);
-	sigpascale_default = 0;
-	i++;
-	if(!isnormal(config.sigpascale) || config.sigpascale<=0.0l) {
-	  cerr << "Error: invalid trail position angle uncertainty parameter\n";
-	  cerr << "(" << config.sigpascale << " arcsec) supplied.\n";
-	  return(2);
-	}
-      }
-      else {
-	cerr << "Trail position angle uncertainty parameter\nkeyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
-    } else if(string(argv[i]) == "-exptime") {
-      if(i+1 < argc) {
-	//There is still something to read;
-        config.exptime=stod(argv[++i]);
-	exptime_default = 0;
-	i++;
-	if(!isnormal(config.exptime) || config.exptime<=0.0l) {
-	  cerr << "Error: invalid exposure time\n";
-	  cerr << "(" << config.exptime << " seconds) supplied.\n";
-	  return(2);
-	}
-      }
-      else {
-	cerr << "Exposure time keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -387,7 +319,19 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    }  else if(string(argv[i]) == "-obscode" || string(argv[i]) == "-obs" || string(argv[i]) == "-oc" || string(argv[i]) == "-obscodes" || string(argv[i]) == "--obscode" || string(argv[i]) == "--obscodes" || string(argv[i]) == "--observatorycodes") {
+    } else if(string(argv[i]) == "-max_netl" || string(argv[i]) == "-maxnetl" || string(argv[i]) == "-maxNETL" || string(argv[i]) == "-max_NETL" || string(argv[i]) == "--maximum_non-exclusive_tracklet_length" || string(argv[i]) == "--maximum_non_exclusive_tracklet_length" || string(argv[i]) == "--max_netl") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	config.max_netl=stoi(argv[++i]);
+	maxnetl_default = 0;
+	i++;
+      }
+      else {
+	cerr << "Min. tracklet points keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-obscode" || string(argv[i]) == "-obs" || string(argv[i]) == "-oc" || string(argv[i]) == "-obscodes" || string(argv[i]) == "--obscode" || string(argv[i]) == "--obscodes" || string(argv[i]) == "--observatorycodes") {
       if(i+1 < argc) {
 	//There is still something to read;
 	obscodefile=argv[++i];
@@ -455,11 +399,13 @@ int main(int argc, char *argv[])
   if(inimfile_set == 1) cout << "Input image file = " << inimfile << "\n";
   else cout << "No input image file specified: image catalog will be generated internally.\n";	
 
-  if(outimfile_set ==1) cout << "output image file = " << outimfile << "\n";
-  else cout << "No output image file specified: required image information will only be used internally.\n";
 
-  if(colformatfile_set == 1) cout << "column formatting file = " << colformatfile << "\n";
-  else {
+  if(colformatfile_set == 1) {
+    cout << "column formatting file = " << colformatfile << "\n";
+    // Wipe the default column specifiers so they will be read from
+    // the file if present.
+    idcol = mjdcol = racol = deccol = magcol = bandcol = obscodecol = -1;
+  } else {
     cout << "No column formatting file specified for input file " << indetfile << "\n";
     cout << "The following default format will be assumed:\n";
     cout << "String identifer in column " << idcol << "\n";
@@ -469,11 +415,12 @@ int main(int argc, char *argv[])
     cout << "Magnitude in column " << magcol << "\n";
     cout << "Photometric band in column " << bandcol << "\n";
     cout << "Observatory code in column " << obscodecol << "\n";
-    cout << "Trail celestial position angle (PA, degrees) in column " << trail_PA_col << "\n";
-    cout << "Trail length (arcsec) in column " << trail_len_col << "\n";
   }
   
   cout << "Observatory code file " << obscodefile << "\n";
+
+  if(outimfile_default == 0) cout << "Output image file will be called " << outimfile << "\n";
+  else cout << "Defaulting to output image file name = " << outimfile << "\n";
 
   if(pairdetfile_default == 0) cout << "Output paired detection file will be called " << pairdetfile << "\n";
   else cout << "Defaulting to output paired detection file name = " << pairdetfile << "\n";
@@ -500,16 +447,12 @@ int main(int argc, char *argv[])
   else cout << "Defaulting to maximum angular velocity = " << config.maxvel << " deg/day.\n";
   if(mintrkpts_default == 0) cout << "Minimum number of points per tracklet = " << config.mintrkpts << "\n";
   else cout << "Defaulting to minimum number of points per tracklet = " << config.mintrkpts << "\n";
+  if(maxnetl_default == 0) cout << "Maximum number of points for a non-exclusive tracklet = " << config.max_netl << "\n";
+  else cout << "Defaulting to maximum number of points for a non-exclusive tracklet = " << config.max_netl << "\n";
   if(minarc_default == 0) cout << "Minimum tracklet length = " << config.minarc << " arcsec.\n";
   else cout << "Defaulting to minimum tracklet length = " << config.minarc << " arcsec.\n";
   if(maxgcr_default == 0) cout << "Maximum tracklet Great Circle residual = " << config.maxgcr << " arcsec.\n";
   else cout << "Defulting to maximum tracklet Great Circle residual = " << config.maxgcr << " arcsec.\n";
-  if(siglenscale_default == 0) cout << "Fractional uncertainty on trail length = " << config.siglenscale << "\n";
-  else cout << "Defulting to fractional uncertainty on trail length = " << config.siglenscale << "\n";
-  if(sigpascale_default == 0) cout << "Trail position angle uncertainty parameter = " << config.sigpascale << " arcsec.\n";
-  else cout << "Defulting to trail position angle uncertainty parameter = " << config.sigpascale << " arcsec.\n";
-  if(exptime_default == 0) cout << "Exposure time = " << config.exptime << " seconds.\n";
-  else cout << "Defulting to exposure time = " << config.exptime << " seconds.\n";
   
   // Read the column formatting file, if any
   if(colformatfile.size()>0)
@@ -582,8 +525,6 @@ int main(int argc, char *argv[])
   cout << "MAGCOL " << magcol << "\n";
   cout << "BANDCOL " << bandcol << "\n";
   cout << "OBSCODECOL " << obscodecol << "\n";
-  cout << "TRAILLENCOL " << trail_len_col << "\n";
-  cout << "TRAILPACOL " << trail_PA_col << "\n";
 
   // Read observatory code file
   status = read_obscode_file2(obscodefile, observatory_list, config.verbose);
@@ -597,6 +538,7 @@ int main(int argc, char *argv[])
       cout << observatory_list[i].obscode << " " << observatory_list[i].obslon << " " << observatory_list[i].plxcos << " " << observatory_list[i].plxsin << "\n";
     }
   }
+
 
   // Read input detection file.
   status = read_detection_filemt2(indetfile, mjdcol, racol, deccol, magcol, idcol, bandcol, obscodecol, trail_len_col, trail_PA_col, sigmag_col, sig_across_col, sig_along_col, known_obj_col, det_qual_col, detvec, config.verbose, config.forcerun);
@@ -645,16 +587,6 @@ int main(int argc, char *argv[])
   if(DEBUGB==1) cout << "Preparing to load the image table\n";
   status = load_image_table(img_log, detvec, observatory_list, EarthMJD, Earthpos, Earthvel);
   if(DEBUGB==1) cout << "Loaded the image table\n";
-  // Replace any invalid exposure times with the default (or user-supplied constant) value.
-  long exp_resetnum=0;
-  for(i=0;i<long(img_log.size());i++) {
-    if(img_log[i].exptime<=0.0l) {
-      cout << "Correcting exposure time on image " << i << ": " << img_log[i].MJD << " " << img_log[i].RA << " " << img_log[i].Dec << " " << img_log[i].obscode << ", exptime was " << img_log[i].exptime << "\n";
-      img_log[i].exptime = config.exptime;
-      exp_resetnum++;
-    }
-  }
-  cout << "Exposure time was corrected for " << exp_resetnum << " out of " << img_log.size() << " images\n";
 
   if(DEBUG>=2) {
     // Test: print out time-sorted detection table.
@@ -665,23 +597,20 @@ int main(int argc, char *argv[])
     outstream1.close();
   }
   
-  if(outimfile.size()>0)
-    {
-      // Write and print image log table
-      outstream1.open(outimfile);
-      for(imct=0;imct<long(img_log.size());imct++)
-	{
-	  outstream1 << fixed << setprecision(8) << img_log[imct].MJD << " " << img_log[imct].RA;
-	  outstream1 << fixed << setprecision(8) << " " << img_log[imct].Dec << " " << img_log[imct].obscode << " ";
-	  outstream1 << fixed << setprecision(1) << img_log[imct].X << " " << img_log[imct].Y << " " << img_log[imct].Z << " ";
-	  outstream1 << fixed << setprecision(4) << img_log[imct].VX << " " << img_log[imct].VY << " " << img_log[imct].VZ << " ";
-	  outstream1 << img_log[imct].startind << " " << img_log[imct].endind << "\n";
-	}
-      outstream1.close();
-    }
+  // Write and print image log table
+  cout << "Writing output image catalog " << outimfile << " with " << img_log.size() << " lines\n";
+  outstream1.open(outimfile);
+  for(imct=0;imct<long(img_log.size());imct++) {
+    outstream1 << fixed << setprecision(8) << img_log[imct].MJD << " " << img_log[imct].RA;
+    outstream1 << fixed << setprecision(8) << " " << img_log[imct].Dec << " " << img_log[imct].obscode << " ";
+    outstream1 << fixed << setprecision(1) << img_log[imct].X << " " << img_log[imct].Y << " " << img_log[imct].Z << " ";
+    outstream1 << fixed << setprecision(4) << img_log[imct].VX << " " << img_log[imct].VY << " " << img_log[imct].VZ << " ";
+    outstream1 << img_log[imct].startind << " " << img_log[imct].endind << "\n";
+  }
+  outstream1.close();
 
-  make_trailed_tracklets(detvec, img_log, config, pairdets, tracklets, trk2det);
-
+  make_tracklets2(detvec, img_log, config, pairdets, tracklets, trk2det);
+  
   cout << "Output image catalog " << outimfile << ", with " << img_log.size() << " lines, has been written\n";
   // Write paired detection file
   cout << "Writing paired detection file " << pairdetfile << " with " << pairdets.size() << " lines\n";

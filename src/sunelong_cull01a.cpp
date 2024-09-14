@@ -28,12 +28,13 @@ static void show_usage()
 int main(int argc, char *argv[])
 {
   string infile,earthfile,colformatfile,outfile,stest,lnfromfile;
-  double minsunelong,maxsunelong;
-  int mjdcol,racol,deccol,i,j,c,reachedeof,lct;
+  double minsunelong=0.0;
+  double maxsunelong=90.0;
+  long mjdcol,racol,deccol,i,j,c,reachedeof,lct;
   ifstream instream1;
   ofstream outstream1;
   double MJD,RA,Dec,oldMJD;
-  oldMJD=0.0L;
+  MJD=RA=Dec=oldMJD=0.0L;
   vector <point3d> Earthpos;
   vector <point3d> Earthvel;
   vector <double> EarthMJD;
@@ -216,13 +217,13 @@ int main(int argc, char *argv[])
     i=0;
     j = 0;
     c='0';
-    while(i<lnfromfile.size() && lnfromfile.size()>=30 && reachedeof == 0) {
+    while(i<long(lnfromfile.size()) && lnfromfile.size()>=30 && reachedeof == 0) {
       // Note check on line length: it is completely impossible for a
       // line containing all the required quantities at minimum plausible
       // precision to be less than 30 characters long.
       c='0';
       stest="";
-      while(i<lnfromfile.size() && c!=',' && c!='\n' && c!=EOF) {
+      while(i<long(lnfromfile.size()) && c!=',' && c!='\n' && c!=EOF) {
 	c=lnfromfile[i];
 	if(c!=',' && c!='\n' && c!=EOF) stest.push_back(c);
 	i++;
@@ -247,6 +248,7 @@ int main(int argc, char *argv[])
       opelong = acos(opdistcos)*DEGPRAD;
       if(opelong < 0.0L) opelong = 90.0L - opelong;
       sunelong = 180.0L - opelong;
+      //cout << "Image: " << MJD << " " << RA << " " << Dec << " " << sunelong << " " << minsunelong << "--" << maxsunelong << "\n";
       if(sunelong>=minsunelong && sunelong<=maxsunelong) {
 	// Write line to output file
 	outstream1 << lnfromfile << "\n";
