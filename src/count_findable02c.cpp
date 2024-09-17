@@ -1,4 +1,4 @@
-// April 05, 2022: count_findable02b.cpp
+// September 16, 2024: count_findable02c.cpp
 // Hopefully a more polished and production-like version of
 // count_findable01c.cpp. The important changes include calculating
 // all the metrics even for objects ultimately not classified as
@@ -27,6 +27,9 @@
 #define MJDCOL 2
 #define RACOL 3
 #define DECCOL 4
+#define HELIOXCOL 15
+#define HELIOYCOL 16
+#define HELIOZCOL 17
 #define MINOBSINTERVAL 1.0 // Minimum time-between-images in seconds
 #define IMAGETIMETOL 1.0 // Tolerance for matching image time, in seconds
 #define MAXVEL 1.5 // Default max angular velocity in deg/day.
@@ -42,18 +45,16 @@
 #define INTRANIGHTSTEP 0.3 // Minimum interval in days between successive points
                            // in a tracklet, to enable them to be counted as being
                            // on separate nights.
-#define MAXVELCALCSTEP 1.5 // Maximum interval in days to be used for estimating
-                           // heliocentric velocity vector.
 #define MINTRACKTIME 300.0 // Minimum tracklet timespan in seconds.
-#define COLS_TO_READ 4
+#define COLS_TO_READ 7
 
 static void show_usage()
 {
-  cerr << "Usage: count_finddable02b -dets detfile -colformat column format file -maxtime max inter-image time interval (hr)/ \n";
-  cerr << "-maxvel maximum angular velocity (deg/day) -mintracktime min tracklet time span (sec)\n";
-  cerr << "-outfile output file\n";
+  cerr << "Usage: count_finddable02c -dets detfile -colformat column format file / \n";
+  cerr << "-maxtime max inter-image time interval (hr) -maxvel maximum angular velocity (deg/day) /\n";
+  cerr << "-mintracktime min tracklet time span (sec) -outfile output file\n";
   cerr << "\nor, at minimum\n\n";
-  cerr << "count_findable02a -dets detfile -colformat column format file -outfile output file\n";
+  cerr << "count_findable02c -dets detfile -outfile output file\n";
   cerr << "Note well that the minimum invocation will leave things\n";
   cerr << "set to defaults that may not be what you want.\n";
 }
@@ -79,8 +80,8 @@ int main(int argc, char *argv[])
   string idstring;
   string lnfromfile;
   string stest;
-  int i = 0;
-  int j = 0;
+  long i = 0;
+  long j = 0;
   long detct=0;
   int reachedeof = 0;
   char c='0';
@@ -108,14 +109,14 @@ int main(int argc, char *argv[])
   int tracklet_firstpoint=0;
   long double timestep = 0L;
   long double maxtimestep = 0L;
-  point3LD targvel = point3LD(0,0,0);
-  point3LD targpos1 = point3LD(0,0,0);
-  point3LD targpos2 = point3LD(0,0,0);
+  point3d targvel = point3d(0,0,0);
+  point3d targpos1 = point3d(0,0,0);
+  point3d targpos2 = point3d(0,0,0);
   int vp1=0;
   int vp2=0;
   long double r0,v0,E,lscalar,a,e,r1,r2,heliovel;
   r0=v0=E=lscalar=a=e=r1=r2=heliovel=0.0L;
-  point3LD lvec = point3LD(0L,0L,0L);
+  point3d lvec = point3d(0L,0L,0L);
   long double MGsun = GMSUN_KM3_SEC2;
   ofstream outstream1;
   double mintracktime = MINTRACKTIME; // Minimum tracklet time span in seconds.
@@ -123,10 +124,14 @@ int main(int argc, char *argv[])
   int mjdcol = MJDCOL;
   int racol = RACOL;
   int deccol = DECCOL;
+  int helioxcol = HELIOXCOL;
+  int helioycol = HELIOYCOL;
+  int heliozcol = HELIOZCOL;
   ifstream instream1;
   int colreadct=0;
-  
-  if(argc!=13 && argc!=11 &&argc!=9 && argc!=5)
+  int status=0;
+
+  if(argc!=13 && argc!=11  && argc!=9 && argc!=7 && argc!=5)
     {
       show_usage();
       return(1);
@@ -146,7 +151,7 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    }  else if(string(argv[i]) == "-colformat" || string(argv[i]) == "-format"  || string(argv[i]) == "-col" || string(argv[i]) == "-cf" || string(argv[i]) == "-colfmt" || string(argv[i]) == "--colformat" || string(argv[i]) == "--columnformat" || string(argv[i]) == "--cformat") {
+    } else if(string(argv[i]) == "-colformat" || string(argv[i]) == "-format"  || string(argv[i]) == "-col" || string(argv[i]) == "-cf" || string(argv[i]) == "-colfmt" || string(argv[i]) == "--colformat" || string(argv[i]) == "--columnformat" || string(argv[i]) == "--cformat") {
       if(i+1 < argc) {
 	//There is still something to read;
 	colformatfile=argv[++i];
@@ -263,6 +268,15 @@ int main(int argc, char *argv[])
 	} else if(stest == "DECCOL") {
 	  instream1 >> deccol;
 	  if(!instream1.eof() && !instream1.fail() && !instream1.bad()) colreadct++;
+	} else if(stest == "HELIOXCOL") {
+	  instream1 >> helioxcol;
+	  if(!instream1.eof() && !instream1.fail() && !instream1.bad()) colreadct++;
+	} else if(stest == "HELIOYCOL") {
+	  instream1 >> helioycol;
+	  if(!instream1.eof() && !instream1.fail() && !instream1.bad()) colreadct++;
+	} else if(stest == "HELIOZCOL") {
+	  instream1 >> heliozcol;
+	  if(!instream1.eof() && !instream1.fail() && !instream1.bad()) colreadct++;
 	} 
       }
       instream1.close();
@@ -276,6 +290,9 @@ int main(int argc, char *argv[])
   cout << "MJDCOL " << mjdcol << "\n";
   cout << "RACOL " << racol << "\n";
   cout << "DECCOL " << deccol << "\n";
+  cout << "HELIOXCOL " << helioxcol << "\n";
+  cout << "HELIOYCOL " << helioycol << "\n";
+  cout << "HELIOZCOL " << heliozcol << "\n";
 
   instream1.open(indetfile);
   if(!instream1) {
@@ -310,7 +327,10 @@ int main(int argc, char *argv[])
       if(j==mjdcol) MJD=stold(stest);
       else if(j==racol) RA=stold(stest);
       else if(j==deccol) Dec=stold(stest);
-      // cout<<"Column "<< j << " read as " << stest << ".\n";
+      else if(j==helioxcol) heliox=stold(stest);
+      else if(j==helioycol) helioy=stold(stest);
+      else if(j==heliozcol) helioz=stold(stest);
+      cout << "Column " << j << " read as " << stest << ".\n";
     }
     if(reachedeof == 0) {
       // cout<<"MJD, RA, Dec: " << MJD-floor(MJD) << " " << RA << " " << Dec << "\n";
@@ -326,10 +346,12 @@ int main(int argc, char *argv[])
   else cout << "Warning: unknown file read problem\n";
   // Sort the detection vector by the id strings.
   sort(detvec.begin(), detvec.end(), stringsort_det_OC_index());
+  //squiggle
+  for(i=0;i<20;i++) {
+    cout << detvec[i].idstring << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << " " << detvec[i].x << " " << detvec[i].y << " " << detvec[i].z << " " << detvec[i].index << "\n";
+  }
 
-  //  for(detct=0;detct<long(detvec.size());detct++) {
-  //  cout << detct << " " << detvec[detct].MJD << " " << detvec[detct].RA << " " << detvec[detct].Dec << " " << detvec[detct].idstring << "\n";
-  // }
+  //squiggle
   // Pull out the sets of detections corresponding to
   // each simulated object.
   trackvec ={};
@@ -337,7 +359,6 @@ int main(int argc, char *argv[])
   idstring = detvec[0].idstring;
   detct=1;
   outstream1.open(outfile,ios_base::out);
-  outstream1  << "idstring validity npts timespan tracknightcount r0 heliovel a e1 q minarc medarc maxarc min_timespan med_timespan max_timespan\n";
   while(detct<long(detvec.size())) {
     while(detct<long(detvec.size()) && detvec[detct].idstring == idstring) {
       // We are still on the same simulated object.
@@ -468,17 +489,17 @@ int main(int argc, char *argv[])
 	targpos1.x=trackvec[vp1].x;
 	targpos1.y=trackvec[vp1].y;
 	targpos1.z=trackvec[vp1].z;
-	r0 = sqrt(dotprod3LD(targpos1,targpos1));
+	r0 = sqrt(dotprod3d(targpos1,targpos1));
       } else if (trackvec.size()>1) {
 	// Calculate the orbital semimajor axis and eccentricity
 	// Find two points with suitable time-separation for
 	// this purpose.
 	vp1=vp2=0;
-	maxtimestep=0L;
-	for(i=0; i<long(trackvec.size())-1; i++) {
+	maxtimestep=0.0;
+	for(i=0; i<long(trackvec.size()-1); i++) {
 	  for(j=i+1;  j<long(trackvec.size()); j++) {
 	    timestep = trackvec[j].MJD - trackvec[i].MJD;
-	    if(timestep<=MAXVELCALCSTEP && timestep>maxtimestep) {
+	    if(timestep>maxtimestep) {
 	      maxtimestep = timestep;
 	      vp1=i;
 	      vp2=j;
@@ -491,31 +512,28 @@ int main(int argc, char *argv[])
 	targpos2.x=trackvec[vp2].x;
 	targpos2.y=trackvec[vp2].y;
 	targpos2.z=trackvec[vp2].z;
-	r1 = sqrt(dotprod3LD(targpos1,targpos1));
-	r2 = sqrt(dotprod3LD(targpos2,targpos2));
-	heliovel = (r2-r1)/maxtimestep/SOLARDAY;  // units should be km/sec.
 	// Calculate heliocentric velocity vector.
-	targvel.x = (targpos2.x-targpos1.x)/maxtimestep/SOLARDAY; // units should be km/sec.
-	targvel.y = (targpos2.y-targpos1.y)/maxtimestep/SOLARDAY;
-	targvel.z = (targpos2.z-targpos1.z)/maxtimestep/SOLARDAY;
-	// average position vector
-	targpos1.x = 0.5L*(targpos1.x + targpos2.x);
-	targpos1.y = 0.5L*(targpos1.y + targpos2.y);
-	targpos1.z = 0.5L*(targpos1.z + targpos2.z);
-
-	r0 = sqrt(dotprod3LD(targpos1,targpos1));
-	v0 = sqrt(dotprod3LD(targvel,targvel));
+	status=0;
+	status = Twopoint_Kepler_vstar(MGsun, targpos1, targpos2, maxtimestep, targvel, KVSTAR_ITMAX);
+	if(status!=0) {
+	  cerr << "ERROR: Twopoint_Kepler_vstar() exited with error code " << status << "\n";
+	  cout << "vp1, vp2: " << vp1 << " " << vp2 << " " << trackvec.size() << " targpos1,2: " << targpos1.x << " " << targpos1.y << " " << targpos1.z << " , " << targpos2.x << " " << targpos2.y << " " << targpos2.z << " maxtime = " << maxtimestep << "\n";
+	  return(status);
+	}
+	r0 = vecabs3d(targpos1);
+	v0 = sqrt(dotprod3d(targvel,targvel));
+	heliovel = dotprod3d(targpos1,targvel)/r0;  // units should be km/sec.
   
 	// Calculate specific energy and angular momentum
 	E = 0.5L*v0*v0 - MGsun/r0;
-	lvec = crossprod3LD(targpos1,targvel);
-	lscalar = sqrt(dotprod3LD(lvec,lvec));
+	lvec = crossprod3d(targpos1,targvel);
+	lscalar = sqrt(dotprod3d(lvec,lvec));
 		 
 	// Calculate a and e: orbital semimajor axis and eccentricity.
 	a = -MGsun*0.5L/E;
 	e = sqrt(1.0L + 2.0L*E*lscalar*lscalar/MGsun/MGsun);
       }
-      if(timespan >= MINSPAN && trackvec.size()>=MINPOINTS && long_tracknightcount >= MINDAYSTEPS) {
+      if(timespan >= MINSPAN && long(trackvec.size())>=MINPOINTS && long_tracknightcount >= MINDAYSTEPS) {
 	// This simulated object had sufficient observations
 	// to enable qualifying discovery.
 	validity = 1;
