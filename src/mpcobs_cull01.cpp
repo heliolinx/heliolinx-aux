@@ -15,10 +15,6 @@ static void show_usage()
 int main(int argc, char *argv[])
 {
   int i=0;
-  int j=0;
-  char c='0';
-  int reachedeof=0;
-  int lct=0;
   string mpcfile,mpcout;
   string stest;
   double mjdstart=0.0;
@@ -31,7 +27,36 @@ int main(int argc, char *argv[])
   vector <string> badcodes;
   int isbadcode=0;
   
+  badcodes.push_back("C49");
+  badcodes.push_back("C50");
   badcodes.push_back("C51");
+  badcodes.push_back("C52");
+  badcodes.push_back("C53");
+  badcodes.push_back("C54");
+  badcodes.push_back("C55");
+  badcodes.push_back("C56");
+  badcodes.push_back("C57");
+  badcodes.push_back("C58");
+  badcodes.push_back("C59");
+  badcodes.push_back("244");
+  badcodes.push_back("245");
+  badcodes.push_back("246");
+  badcodes.push_back("247");
+  badcodes.push_back("248");
+  badcodes.push_back("249");
+  badcodes.push_back("250");
+  badcodes.push_back("251");
+  badcodes.push_back("252");
+  badcodes.push_back("253");
+  badcodes.push_back("254");
+  badcodes.push_back("255");
+  badcodes.push_back("256");
+  badcodes.push_back("257");
+  badcodes.push_back("258");
+  badcodes.push_back("270");
+  badcodes.push_back("273");
+  badcodes.push_back("274");
+  badcodes.push_back("275");
   
   if(argc<0 && argc<1) {
     show_usage();
@@ -116,7 +141,7 @@ int main(int argc, char *argv[])
       if(MJD>=mjdstart && MJD<=mjdend) {
 	// See if the code is OK
 	isbadcode=0;
-	for(i=0; i<badcodes.size(); i++) {
+	for(i=0; i<long(badcodes.size()); i++) {
 	  if(obscode.compare(badcodes[i])==0) isbadcode=1;
 	}
 	if(!isbadcode) {

@@ -3,7 +3,6 @@
 #include "solarsyst_dyn_geo01.h"
 #include "cmath"
 
-
 static void show_usage()
 {
   cerr << "Usage: parse_trk2det -pairdet pairdet_file -trk2det input tracklet-to-detection file -out output file\n";
@@ -33,8 +32,12 @@ int main(int argc, char *argv[])
   int verbose=0;
   long max_known_obj=0;
   double avg_det_qual=0.0l;
-  double magrange,magmean,magrms;
-  magrange = magmean = magrms = 0.0l;
+  double magrange,magmean,magrms,meanRA,meanDec,posSTDEV;
+  magrange = magmean = magrms = meanRA = meanDec = posSTDEV = 0.0l;
+  int distinct_times = 0;
+  point3d cartvec = point3d(0,0,0);
+  point3d meanvec = point3d(0,0,0);
+  double dist = 0.0;
   
   
   if(argc!=7) {
@@ -146,7 +149,7 @@ int main(int argc, char *argv[])
     cout << "i=" << i << ", trk2det: " << intrk2det[i].i1 << "," << intrk2det[i].i2 << " trkct=" << trkct << ", detct=" << detct << ", detnum=" << detnum << "\n";
     if(detct>=0 && detct<detnum && trkct==intrk2det[i].i1) {
       trackvec.push_back(detvec[detct]);
-    } else if(trkct!=intrk2det[i].i1 || i>=long(intrk2det.size()-1)) {
+    } if(trkct!=intrk2det[i].i1 || i>=long(intrk2det.size()-1)) {
       // We just finished a tracklet. Write it out
       cout << trackvec.size() << " points found for tracklet " << trkct << "\n";
       if(trackvec.size()>0) {
@@ -168,13 +171,36 @@ int main(int argc, char *argv[])
 	  greatcircfit(trackvec, poleRA, poleDec, angvel, PA, crosstrack, alongtrack);
 	  if(tracknum>2) GCR = sqrt(DSQUARE(crosstrack)+DSQUARE(alongtrack));
 	  else GCR = 0.0l;
-	  timespan = (trackvec[trackvec.size()-1].MJD - trackvec[0].MJD)*24.0l;
+	  timespan = (trackvec[trackvec.size()-1].MJD - trackvec[0].MJD);
 	  arc = timespan*angvel*3600.0l;
+	  timespan *= 24.0;
 	  // Sort magvec
 	  sort(magvec.begin(), magvec.end());
 	  dmeanrms01(magvec, &magmean, &magrms);
 	  // Magrange will be the full max-min
 	  magrange = magvec[magvec.size()-1] - magvec[0];
+	  // Calculate the number of distinct image times.
+	  distinct_times = 1;
+	  for(long j=1; j<long(trackvec.size()); j++) {
+	    if(trackvec[j].MJD - trackvec[j-1].MJD > IMAGETIMETOL/SOLARDAY) distinct_times++;
+	  }
+	  // Calculate the mean RA and Dec, using a Cartesian transformation
+	  // to avoid wrapping issues.
+	  meanvec = point3d(0,0,0);
+	  for(long j=0; j<long(trackvec.size()); j++) {
+	    celestial_to_cartunit(trackvec[j].RA, trackvec[j].Dec, cartvec);
+	    meanvec.x += cartvec.x;
+	    meanvec.y += cartvec.y;
+	    meanvec.z += cartvec.z;
+	  }
+	  cart_to_celestial(meanvec, &meanRA, &meanDec);
+	  // Calculate the STDEV from the mean position
+	  posSTDEV = 0.0;
+	  for(long j=0; j<long(trackvec.size()); j++) {
+	    dist = 3600.0*distradec01(meanRA, meanDec, trackvec[j].RA, trackvec[j].Dec);
+	    posSTDEV += dist*dist;
+	  }
+	  posSTDEV = sqrt(posSTDEV/double(trackvec.size()));
 	} else if(tracknum==1) {
 	  // The 'tracklet' is a singleton. Set all tracket vectors to error codes or zero.
 	  angvel = -1.0l;
@@ -184,15 +210,24 @@ int main(int argc, char *argv[])
 	  timespan = 0.0l;
 	  magmean = trackvec[0].mag;
 	  magrms = magrange = 99.9;
+	  distinct_times = 1;
+	  meanRA = trackvec[0].RA;
+	  meanDec = trackvec[0].Dec;
+	  poleRA = -1.0;
+	  poleDec = -999.0;
+	  posSTDEV = -1.0;
 	}
 	// Write the summary data to the output file
-	outstream1 << "\n#trknum,timespan,pointnum,angvel,PA,crosstrack,alongtrack,GCR,arc,avg_det_qual,max_known_obj,stringID,magmean,magrms,magrange\n";
-	outstream1 << fixed << setprecision(6) << trkct << "," << timespan << "," << tracknum << ",";
+	outstream1 << "\n#trknum,timespan,pointnum,distinct_times,angvel,PA,crosstrack,alongtrack,GCR,arc,avg_det_qual,max_known_obj,stringID,magmean,magrms,magrange,meanRA,meanDec,posSTDEV,poleRA,poleDec\n";
+	outstream1 << fixed << setprecision(6) << trkct << "," << timespan << "," << tracknum << "," << distinct_times << ",";
 	outstream1 << fixed << setprecision(3) << angvel << "," << PA << "," << crosstrack << "," << alongtrack << "," << GCR << "," << arc << ",";
 	outstream1 << fixed << setprecision(1) << avg_det_qual << "," << max_known_obj << ",";	
-	outstream1 << trackvec[0].idstring << "," << magmean << "," << magrms << "," << magrange << "\n";	
+	outstream1 << trackvec[0].idstring << "," << magmean << "," << magrms << "," << magrange << ",";
+	outstream1 << fixed << setprecision(6) << meanRA << "," << meanDec << ",";
+	outstream1 << fixed << setprecision(3) << posSTDEV << ",";
+	outstream1 << fixed << setprecision(6) << poleRA << "," << poleDec << "\n";	
 	// Write the individual points to the output file
-	outstream1 << "#MJD,RA,Dec,mag,trail_len,trail_PA,sigmag,sig_across,sig_along,image,idstring,band,obscode,known_obj,det_qual,origindex\n";
+	outstream1 << "#MJD,RA,Dec,mag,trail_len,trail_PA,sigmag,sig_across,sig_along,image,idstring,band,obscode,known_obj,det_qual,trknum,origindex\n";
 	for(long j=0; j<long(trackvec.size()); j++) {
 	  outstream1 << fixed << setprecision(7) << trackvec[j].MJD << "," << trackvec[j].RA << "," << trackvec[j].Dec << ",";
 	  outstream1 << fixed << setprecision(4) << trackvec[j].mag << ",";
@@ -201,11 +236,11 @@ int main(int argc, char *argv[])
 	  outstream1 << fixed << setprecision(3) << trackvec[j].sig_across << "," << trackvec[j].sig_along << ",";
 	  outstream1 << trackvec[j].image << "," << trackvec[j].idstring << "," << trackvec[j].band << ",";
 	  outstream1 << trackvec[j].obscode << "," << trackvec[j].known_obj << ",";
-	  outstream1 << trackvec[j].det_qual << "," << trackvec[j].index << "\n";
+	  outstream1 << trackvec[j].det_qual << "," << trkct << "," << trackvec[j].index << "\n";
 	}
       }
       trackvec = {}; // Wipe trackvec
-      if(detct>=0 && detct<detnum) {
+      if(detct>=0 && detct<detnum && i<long(intrk2det.size())) {
 	// Load the next point of the next tracklet.
 	trkct=intrk2det[i].i1;
 	trackvec.push_back(detvec[detct]);
