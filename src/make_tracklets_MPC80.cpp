@@ -48,6 +48,7 @@ int main(int argc, char *argv[])
   int pairdetfile_default,trackletfile_default,trk2detfile_default;  
   pairdetfile_default = trackletfile_default = trk2detfile_default = 1;
   int verbose=0;
+  double time_offset = 0.0;
   
   if(argc<7)
     {
@@ -259,7 +260,7 @@ int main(int argc, char *argv[])
   cout << "Finished reading heliocentric ephemeris file " << earthfile << " for the Earth.\n";
 
   if(DEBUG==1) cout << "Preparing to load the image table\n";
-  status = load_image_table(img_log, detvec, observatory_list, EarthMJD, Earthpos, Earthvel);
+  status = load_image_table(img_log, detvec, time_offset, observatory_list, EarthMJD, Earthpos, Earthvel);
   if(DEBUG==1) cout << "Loaded the image table\n";
 
   for(i=0; i<long(detvec.size()); i++) {
