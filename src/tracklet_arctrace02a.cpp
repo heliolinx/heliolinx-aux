@@ -1,4 +1,6 @@
-// February 14, 2025: tracklet_arctrace01b.cpp:
+// March 5, 2025: tracklet_arctrace02a.cpp:
+// Probes multiple MCMC realizations, supplied via a representative
+// state vector file produced by, e.g., MCMC_arctrace01g.
 // Like tracklet_arctrace01a.cpp, but takes the input observation file in
 // heliolinc hldet format, and requires an observer code file.
 // Also writes an output file in hldet format.
@@ -23,7 +25,7 @@
 // be in km and km/sec, relative to the Sun. The RA and Dec must be in decimal degrees.
 static void show_usage()
 {
-  cerr << "Usage: tracklet_arctrace01b -cfg configfile -observations obsfile  -obscode obscodefile -mjd mjd_for_statevecs -statevec x y z vx vy vz -minchi min_chi_change -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -max_astrom_rms max astrometric RMS (arcsec) -outfile outfile -logfile logfile\n";
+  cerr << "Usage: tracklet_arctrace02a -cfg configfile -observations obsfile -obscode obscodefile -repvec representative_statevector_file -minchi min_chi_change -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -outfile outfile -logfile logfile\n";
 }
 
 int main(int argc, char *argv[])
@@ -45,6 +47,7 @@ int main(int argc, char *argv[])
   string planetfile;
   string logfile;
   string outfile;
+  string repfile;
   double kepspan=15.0;
   long double ldval=0.0L;
   vector <long double> planetmasses;
@@ -74,6 +77,8 @@ int main(int argc, char *argv[])
   point3LD outvel = point3LD(0,0,0);
   point3LD startpos = point3LD(0,0,0);
   point3LD startvel = point3LD(0,0,0);
+  vector <point3LD> startposvec;
+  vector <point3LD> startvelvec;
   vector <long double> scalestate;
   make_LDvec(60,scalestate);
   vector <long double> newstate;
@@ -90,6 +95,7 @@ int main(int argc, char *argv[])
   long double minchichange = 0.001l;
   long double astromRMS = 1.0;
   long double mjd_statevecs = 0.0l;
+  vector <long double> mjd_sv_vec;
   long planetfile_refpoint=0;
   point3LD tppos = point3LD(0,0,0);
   long double mjdstart = 0;
@@ -124,6 +130,10 @@ int main(int argc, char *argv[])
   vector <double> ephDec;
   vector <double> ephRAvel;
   vector <double> ephDecvel;
+  vector <vector <double>> ephRAmat;
+  vector <vector <double>> ephDecmat;
+  vector <vector <double>> ephRAvelmat;
+  vector <vector <double>> ephDecvelmat;
   double RAvel,Decvel;
   double delem = 0.0;
   long ind = 0;
@@ -145,7 +155,8 @@ int main(int argc, char *argv[])
   double plxcos = 0.0l;
   double plxsin = 0.0l;
   point3LD obspos = point3LD(0,0,0);
-  double max_astrom_rms = 1.0;
+  long startpoint,endpoint;
+  long repnum,repct;
   
   if(argc<9) {
     show_usage();
@@ -304,61 +315,14 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-mjd") {
+    } else if(string(argv[i]) == "-repstate" || string(argv[i]) == "-rep"  || string(argv[i]) == "-repvec" || string(argv[i]) == "-repfile") {
       if(i+1 < argc) {
 	//There is still something to read;
-	mjd_statevecs=stold(argv[++i]);
+	repfile=argv[++i];
 	i++;
       }
       else {
-	cerr << "Keplerian time-span keyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
-    } else if(string(argv[i]) == "-statevec" || string(argv[i]) == "-sv" || string(argv[i]) == "-svec" || string(argv[i]) == "--statevector" || string(argv[i]) == "--statevec" || string(argv[i]) == "-statevector" || string(argv[i]) == "--sv") {
-      if(i+1 < argc) {
-	//There is still something to read;
-	startpos.x=stold(argv[++i]);
-	cout << "read sv entry as " << startpos.x << "\n";
-	if(i+1 >= argc) {
-	  cerr << "State vector keyword supplied with fewer than the required 6 arguments\n";
-	  show_usage();
-	  return(1);
-	}
-	startpos.y=stold(argv[++i]);
-	cout << "read sv entry as " << startpos.y << "\n";
-	if(i+1 >= argc) {
-	  cerr << "State vector keyword supplied with fewer than the required 6 arguments\n";
-	  show_usage();
-	  return(1);
-	}
-	startpos.z=stold(argv[++i]);
-	cout << "read sv entry as " << startpos.z << "\n";
-	if(i+1 >= argc) {
-	  cerr << "State vector keyword supplied with fewer than the required 6 arguments\n";
-	  show_usage();
-	  return(1);
-	}
- 	startvel.x=stold(argv[++i]);
-	cout << "read sv entry as " << startvel.x << "\n";
-	if(i+1 >= argc) {
-	  cerr << "State vector keyword supplied with fewer than the required 6 arguments\n";
-	  show_usage();
-	  return(1);
-	}
-	startvel.y=stold(argv[++i]);
-	cout << "read sv entry as " << startvel.y << "\n";
-	if(i+1 >= argc) {
-	  cerr << "State vector keyword supplied with fewer than the required 6 arguments\n";
-	  show_usage();
-	  return(1);
-	}
-	startvel.z=stold(argv[++i]);
-	cout << "read sv entry as " << startvel.z << "\n";
-	i++;
-      }
-      else {
-	cerr << "State vector keyword supplied with no corresponding argument\n";
+	cerr << "Representative state vector file keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -472,17 +436,6 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    } else if(string(argv[i]) == "-max_astrom_rms" || string(argv[i]) == "-maxastromrms" || string(argv[i]) == "-astrom_rms" || string(argv[i]) == "-arms" || string(argv[i]) == "-marms" || string(argv[i]) == "-max_astrometric_rms" || string(argv[i]) == "--max_arms" ) {
-      if(i+1 < argc) {
-	//There is still something to read;
-	max_astrom_rms=stod(argv[++i]);
-	i++;
-      }
-      else {
-	cerr << "Max astrometric RMS keyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
     } else if(string(argv[i]) == "-log" || string(argv[i]) == "-logfile" || string(argv[i]) == "--logfile") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -529,7 +482,116 @@ int main(int argc, char *argv[])
       cout << observatory_list[i].obscode << " " << observatory_list[i].obslon << " " << observatory_list[i].plxcos << " " << observatory_list[i].plxsin << "\n";
     }
   }
-  
+
+  // Read the representative state vector file
+  instream1.open(repfile);
+  if(!instream1) {
+    cerr << "can't open input file " << repfile << "\n";
+    return(1);
+  }
+  reachedeof = 0;
+  while(reachedeof==0) {
+    getline(instream1,lnfromfile);
+    if(!instream1.eof() && !instream1.fail() && !instream1.bad()) {
+      // Read on.
+      // Read the starting MJD
+      startpoint=0;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { mjd_statevecs = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read MJD " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector x component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startpos.x = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector x component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector y component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startpos.y = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector y component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector z component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startpos.z = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector z component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector vx component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startvel.x = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector vx component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector vy component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startvel.y = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector vy component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      // Read the state vector vz component
+      startpoint = endpoint+1;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { startvel.z = stold(stest); }
+	catch(...) { cerr << "ERROR: cannot read state vector vz component " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      if(badread==0) {
+	mjd_sv_vec.push_back(mjd_statevecs);
+	startposvec.push_back(startpos);
+	startvelvec.push_back(startvel);
+      }
+    } else if(instream1.eof()) reachedeof=1; //End of file, fine.
+    else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+    else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+    if(badread!=0) {
+      cerr << "ERROR reading representative state vector file " << repfile << "\n";
+      cerr << "Last point was " << startposvec.size() << "; last file line was " << lnfromfile << "\n";
+      return(badread);
+    }
+  }
+  instream1.close();
+
+  if(badread!=0) {
+    cerr << "ERROR reading representative state vector file " << repfile << "\n";
+    return(badread);
+  } 
+  if(reachedeof==1) { 
+    if(verbose>=1) cout << "Input file " << repfile << " read successfully to the end.\n";
+  } else if(reachedeof==0) {
+    cerr << "ERROR: Stopped reading file " << repfile << " before the end\n";
+  } else if(reachedeof==-1) {
+    cerr << "ERROR: file read failed\n";
+  } else if(reachedeof==-2) {
+    cerr << "Warning: file possibly corrupted\n";
+  }
+  repnum = startposvec.size();
+  if(repnum!=long(startvelvec.size())) {
+    cerr << "ERROR: vector mismatch 1 from representative state vector file\n";
+    cerr << repnum << " != " << startvelvec.size() << "\n";
+    return(2);
+  }
+  if(repnum!=long(mjd_sv_vec.size())) {
+    cerr << "ERROR: vector mismatch 2 from representative state vector file\n";
+    cerr << repnum << " != " << mjd_sv_vec.size() << "\n";
+    return(2);
+  }
+  cout << "Read " << repnum << " lines from representative state vector file " << repfile << "\n";
+ 
   // Read input observation file.
   obsdetvec={};
   status=read_hldet_file(obsfile, obsdetvec, verbose);
@@ -577,6 +639,10 @@ int main(int argc, char *argv[])
     return(1);
   }
 
+  // Attempt orbit-fit starting from the first representative point, which is supposed to be a previously determined best-fit.
+  mjd_statevecs = mjd_sv_vec[0];
+  startpos = startposvec[0];
+  startvel = startvelvec[0];
   planetfile_refpoint=-99;
   j=0;
   while(j<long(planetmjd.size()) && planetfile_refpoint==-99) {
@@ -607,82 +673,144 @@ int main(int argc, char *argv[])
 
   // FINISHED WITH ORBIT FIT TO ORIGINAL INPUT DATA
 
-  // CALCULATE EPHEMERIS BASED ON ORBIT FIT
-  planetfile_startpoint = planetfile_endpoint = -99;
-  j=0;
-  while(j<long(planetmjd.size()) && planetmjd[j]<=mjdstart) j++;
-  planetfile_startpoint = j-1; // This is the last point in planetmjd that is before mjdstart.
-  j=planetfile_startpoint;
-  while(j<long(planetmjd.size()) && planetmjd[j]<=mjdend) j++;
-  planetfile_endpoint = j; // This is the first point in planetmjd that is after mjdend.
+  // CALCULATE EPHEMERIDES BASED ON INPUT STATE VECTORS
+  for(repct=0;repct<repnum;repct++) {
+    cout << "Calculating representative ephemeris " << repct << "\n";
+    ephMJD = {};
+    ephRA = {};
+    ephDec = {};
+    ephRAvel = {};
+    ephDecvel = {};
 
-  startpos = outpos;
-  startvel = outvel;
-  integrate_orbit05LD(polyorder, planetnum, planetmjd, planetmasses, planetpos, startpos, startvel, planetfile_startpoint, planetfile_refpoint, planetfile_endpoint, orbit05MJD, orbit05pos, orbit05vel);
-  
-  for(j=planetfile_startpoint; j<=planetfile_endpoint; j++) {
-    long orbct=j-planetfile_startpoint;
-    if(orbit05MJD[orbct]!=planetmjd[j]) {
-      cerr << "ERROR: MJD mismatch " << orbit05MJD[orbct] << " " << planetmjd[j] << "\n";
+    mjd_statevecs = mjd_sv_vec[repct];
+    startpos = startposvec[repct];
+    startvel = startvelvec[repct];
+    planetfile_refpoint=-99;
+    j=0;
+    while(j<long(planetmjd.size()) && planetfile_refpoint==-99) {
+      j++;
+      if(fabs(planetmjd[j]-mjd_statevecs) <= IMAGETIMETOL/SOLARDAY) planetfile_refpoint=j;
+    }
+    if(planetfile_refpoint>=0) {
+      //cout << "Input mjd " << mjd_statevecs << " corresponds to planet file entry number " << planetfile_refpoint << "\n";
+    } else {
+      cerr << "ERROR: input mjd " << mjd_statevecs << " does not match any entry in the planet file\n";
       return(1);
     }
+
+    planetfile_startpoint = planetfile_endpoint = -99;
+    j=0;
+    while(j<long(planetmjd.size()) && planetmjd[j]<=mjdstart) j++;
+    planetfile_startpoint = j-1; // This is the last point in planetmjd that is before mjdstart.
+    j=planetfile_startpoint;
+    while(j<long(planetmjd.size()) && planetmjd[j]<=mjdend) j++;
+    planetfile_endpoint = j; // This is the first point in planetmjd that is after mjdend.
+
+    integrate_orbit05LD(polyorder, planetnum, planetmjd, planetmasses, planetpos, startpos, startvel, planetfile_startpoint, planetfile_refpoint, planetfile_endpoint, orbit05MJD, orbit05pos, orbit05vel);
+  
+    for(j=planetfile_startpoint; j<=planetfile_endpoint; j++) {
+      long orbct=j-planetfile_startpoint;
+      if(orbit05MJD[orbct]!=planetmjd[j]) {
+	cerr << "ERROR: MJD mismatch " << orbit05MJD[orbct] << " " << planetmjd[j] << "\n";
+	return(1);
+      }
     // Initial approximation of the coordinates relative to the observer
-    outpos.x = orbit05pos[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - Earthpos[j].z;
-    // Initial approximation of the observer-target distance
-    ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
-    // Convert to meters and divide by the speed of light to get the light travel time.
-    light_travel_time = ldval*1000.0/CLIGHT;
-    // Light-travel-time corrected version of coordinates relative to the observer
-    outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
-    // Light-travel-time corrected observer-target distance
-    ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
-    // Calculate unit vector
-    outpos.x /= ldval;
-    outpos.y /= ldval;
-    outpos.z /= ldval;
-    long double RA1,RA2,Dec1,Dec2;
-    // Project onto the celestial sphere.
-    stateunitLD_to_celestial(outpos, RA1, Dec1);
-    // Calculate the position a little bit later
-    outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
-    outpos.x += TTDELTAT*(orbit05vel[orbct].x - Earthvel[j].x);
-    outpos.y += TTDELTAT*(orbit05vel[orbct].y - Earthvel[j].y);
-    outpos.z += TTDELTAT*(orbit05vel[orbct].z - Earthvel[j].z);
-    //cout << "Earthvel: " << Earthvel[j].x << " " << Earthvel[j].y << " " << Earthvel[j].z << "\n";
-    //cout << "targvel: " << orbit05vel[orbct].x << " " << orbit05vel[orbct].y << " " << orbit05vel[orbct].z << "\n";
-    //cout << "diffs: " << (orbit05vel[orbct].x - Earthvel[j].x) << " " << (orbit05vel[orbct].y - Earthvel[j].y) << " " << (orbit05vel[orbct].z - Earthvel[j].z) << "\n";
-    ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
-    // Calculate unit vector
-    outpos.x /= ldval;
-    outpos.y /= ldval;
-    outpos.z /= ldval;
-    // Project onto the celestial sphere.
-    stateunitLD_to_celestial(outpos, RA2, Dec2);
-    timediff = TTDELTAT/SOLARDAY; // TTDELTAT is in seconds, timediff is in days
-    distradec02(RA1, Dec1, RA2, Dec2, &dist, &pa);
-    RAvel = dist*sin(pa/DEGPRAD)/timediff; // Degrees per day
-    Decvel = dist*cos(pa/DEGPRAD)/timediff; // Degrees per day
-    ephMJD.push_back(orbit05MJD[orbct]);
-    ephRA.push_back(RA1);
-    ephDec.push_back(Dec1);
-    ephRAvel.push_back(RAvel);
-    ephDecvel.push_back(Decvel);
+      outpos.x = orbit05pos[orbct].x - Earthpos[j].x;
+      outpos.y = orbit05pos[orbct].y - Earthpos[j].y;
+      outpos.z = orbit05pos[orbct].z - Earthpos[j].z;
+      // Initial approximation of the observer-target distance
+      ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
+      // Convert to meters and divide by the speed of light to get the light travel time.
+      light_travel_time = ldval*1000.0/CLIGHT;
+      // Light-travel-time corrected version of coordinates relative to the observer
+      outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
+      outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
+      outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
+      // Light-travel-time corrected observer-target distance
+      ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
+      // Calculate unit vector
+      outpos.x /= ldval;
+      outpos.y /= ldval;
+      outpos.z /= ldval;
+      long double RA1,RA2,Dec1,Dec2;
+      // Project onto the celestial sphere.
+      stateunitLD_to_celestial(outpos, RA1, Dec1);
+      // Calculate the position a little bit later
+      outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
+      outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
+      outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
+      outpos.x += TTDELTAT*(orbit05vel[orbct].x - Earthvel[j].x);
+      outpos.y += TTDELTAT*(orbit05vel[orbct].y - Earthvel[j].y);
+      outpos.z += TTDELTAT*(orbit05vel[orbct].z - Earthvel[j].z);
+      ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
+      // Calculate unit vector
+      outpos.x /= ldval;
+      outpos.y /= ldval;
+      outpos.z /= ldval;
+      // Project onto the celestial sphere.
+      stateunitLD_to_celestial(outpos, RA2, Dec2);
+      timediff = TTDELTAT/SOLARDAY; // TTDELTAT is in seconds, timediff is in days
+      distradec02(RA1, Dec1, RA2, Dec2, &dist, &pa);
+      RAvel = dist*sin(pa/DEGPRAD)/timediff; // Degrees per day
+      Decvel = dist*cos(pa/DEGPRAD)/timediff; // Degrees per day
+      ephMJD.push_back(orbit05MJD[orbct]);
+      ephRA.push_back(RA1);
+      ephDec.push_back(Dec1);
+      ephRAvel.push_back(RAvel);
+      ephDecvel.push_back(Decvel);
+    }
+    ephRAmat.push_back(ephRA);
+    ephDecmat.push_back(ephDec);
+    ephRAvelmat.push_back(ephRAvel);
+    ephDecvelmat.push_back(ephDecvel);
   }
   // FINISHED WITH EPHEMERIS CALCULATION.
+  cout << "Full matrix sizes: " << ephRAmat.size() << " " << ephDecmat.size() << " " << ephRAvelmat.size() << " " << ephDecvelmat.size() << "\n";
+  cout << "Final row sizes: " << ephRAmat[repnum-1].size() << " " << ephDecmat[repnum-1].size() << " " << ephRAvelmat[repnum-1].size() << " " << ephDecvelmat[repnum-1].size() << " " << ephMJD.size() << "\n";
 
-  outstream1.open(logfile);
-  for(j=0;j<long(ephMJD.size());j++) {
-    cout << fixed << setprecision(6) << "ephemeris point " << j << " " << ephMJD[j] << " " << ephRA[j] << " " << ephDec[j] << " " << ephRAvel[j] << " " << ephDecvel[j] << "\n";
-    outstream1 << fixed << setprecision(6) << "ephemeris point " << j << " " << ephMJD[j] << " " << ephRA[j] << " " << ephDec[j] << " " << ephRAvel[j] << " " << ephDecvel[j] << "\n";
+  for(i=0;i<long(ephMJD.size());i++) {
+    double maxdist=0;
+    double maxvdist=0;
+    double maxra,minra,maxravel,minravel;
+    long maxrapt,minrapt,maxvelpt,minvelpt;
+    maxrapt = minrapt = maxvelpt = minvelpt = 0;
+    maxra = minra = ephRAmat[0][i];
+    maxravel = minravel = ephRAvelmat[0][i];
+    for(repct=1;repct<repnum;repct++) {
+      if(ephRAmat[repct][i]>maxra) {
+	maxra = ephRAmat[repct][i];
+	maxrapt = repct;
+      }
+      if(ephRAmat[repct][i]<minra) {
+	minra = ephRAmat[repct][i];
+	minrapt = repct;
+      }
+       if(ephRAvelmat[repct][i]>maxravel) {
+	maxravel = ephRAvelmat[repct][i];
+	maxvelpt = repct;
+      }
+      if(ephRAvelmat[repct][i]<minravel) {
+	minravel = ephRAvelmat[repct][i];
+	minvelpt = repct;
+      }
+    }
+    for(repct=0;repct<repnum;repct++) {
+      if(repct!=maxrapt && repct!=minrapt) {
+	dist = distradec01(ephRAmat[maxrapt][i],ephDecmat[maxrapt][i],ephRAmat[repct][i],ephDecmat[repct][i]);
+	if(dist>maxdist) maxdist=dist;
+	dist = distradec01(ephRAmat[minrapt][i],ephDecmat[minrapt][i],ephRAmat[repct][i],ephDecmat[repct][i]);
+	if(dist>maxdist) maxdist=dist;
+      }
+      if(repct!=maxvelpt && repct!=minvelpt) {
+	dist = sqrt(DSQUARE(ephRAvelmat[maxvelpt][i]-ephRAvelmat[repct][i]) + DSQUARE(ephDecvelmat[maxvelpt][i]-ephDecvelmat[repct][i]));
+	if(dist>maxvdist) maxvdist=dist;
+	dist = sqrt(DSQUARE(ephRAvelmat[minvelpt][i]-ephRAvelmat[repct][i]) + DSQUARE(ephDecvelmat[minvelpt][i]-ephDecvelmat[repct][i]));
+	if(dist>maxvdist) maxvdist=dist;
+      }
+    }
+    cout << "Ephemeris point " << i << ", MJD " << ephMJD[i] << ", sky spread is " << maxdist << " deg, and velocity spread is " << maxvdist << " deg/day\n";
   }
   
-
   // READ TRACKLET FILES, AND LOAD TRACKLET VECTORS
   detvec={};
   status=read_pairdet_file(pairdetfile, detvec, verbose);
@@ -756,7 +884,10 @@ int main(int argc, char *argv[])
   // SEARCH FOR TRACKLETS THAT MATCH THE EPHEMERIS PREDICTIONS
   j=0;
   matching_trkind = {};
+  outstream1.open(logfile);
+  cout << "Preparing to search for matches among " << trk_dindvec.size() << " tracklets at " << ephMJD.size() << " different times, for " << repnum << " orbit clones\n";
   for(i=0;i<long(ephMJD.size());i++) {
+    cout << "i,j,trk_dindvec[j].delem,ephMJD[i],timetol " << i << " " << j << " " << trk_dindvec[j].delem << " " << ephMJD[i] << " " << timetol << "\n";
     while(j<long(trk_dindvec.size()) && trk_dindvec[j].delem < ephMJD[i]-timetol) j++;
     if(j<long(trk_dindvec.size())) {
       // We are set to explore a region of the tracklet vectors
@@ -766,33 +897,35 @@ int main(int argc, char *argv[])
 	pairct = trk_dindvec[k].index;
 	// Tracklet catalog entry pairct is in the time range for matching
 	// to ephemeris point i. Check its match in other respects.
-	dist = distradec01(ephRA[i],ephDec[i],trkRA[pairct],trkDec[pairct]);
-	if(dist<=skytol) {
-	  // Tracklet is in the right part of the sky. Test its velocity.
-	  vdist = sqrt(DSQUARE(ephRAvel[i]-trkRAvel[pairct])+DSQUARE(ephDecvel[i]-trkDecvel[pairct]));
-	  if(vdist<=veltol) {
-	    // Tracklet is a perfect match.
-            // See if it matches any of the inputs points
-	    long matchinput=0;
-	    trkvec={};
-	    trkvec = tracklet_lookup(trk2det, pairct);
-	    if(trkvec.size()<=0) {
-	      cerr << "ERROR: tracklet lookup failed for  tracklet line " << pairct << ":\n";
-	      return(2);
-	    }
-	    for(obsct=0;obsct<long(obsMJD.size());obsct++) {
-	      for(tct=0;tct<long(trkvec.size());tct++) {
-		if(fabs(obsMJD[obsct]-image_log[detvec[trkvec[tct]].image].MJD)<IMAGETIMETOL) matchinput=1;
+	for(repct=0;repct<repnum;repct++) {
+	  dist = distradec01(ephRAmat[repct][i],ephDecmat[repct][i],trkRA[pairct],trkDec[pairct]);
+	  if(dist<=skytol) {
+	    // Tracklet is in the right part of the sky. Test its velocity.
+	    vdist = sqrt(DSQUARE(ephRAvelmat[repct][i]-trkRAvel[pairct])+DSQUARE(ephDecvelmat[repct][i]-trkDecvel[pairct]));
+	    if(vdist<=veltol) {
+	      // Tracklet is a perfect match.
+	      // See if it matches any of the inputs points
+	      long matchinput=0;
+	      trkvec={};
+	      trkvec = tracklet_lookup(trk2det, pairct);
+	      if(trkvec.size()<=0) {
+		cerr << "ERROR: tracklet lookup failed for  tracklet line " << pairct << ":\n";
+		return(2);
 	      }
-	    }
-	    if(matchinput==0) {
-	      // We matched a tracklet that was not included in the input linkage.
-	      // Report it to the user, and record it for inclusion in the orbit fit
-	      cout << fixed << setprecision(4) << "Match found on tracklet line " << pairct << ":" << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
-	      cout << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRA[i] << " " << ephDec[i] << " " << ephRAvel[i] << " " << ephDecvel[i] << "\n";
-	      outstream1 << fixed << setprecision(4) << "Match found on tracklet line " << pairct << ":" << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
-	      outstream1 << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRA[i] << " " << ephDec[i] << " " << ephRAvel[i] << " " << ephDecvel[i] << "\n";
-	      matching_trkind.push_back(pairct);
+	      for(obsct=0;obsct<long(obsMJD.size());obsct++) {
+		for(tct=0;tct<long(trkvec.size());tct++) {
+		  if(fabs(obsMJD[obsct]-image_log[detvec[trkvec[tct]].image].MJD)<IMAGETIMETOL) matchinput=1;
+		}
+	      }
+	      if(matchinput==0) {
+		// We matched a tracklet that was not included in the input linkage.
+		// Report it to the user, and record it for inclusion in the orbit fit
+		cout << "Match found for on tracklet line " << pairct << " for representative ephemeris " << repct << ":\n";
+		cout << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
+		outstream1 << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << ":\n";
+		outstream1 << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
+		matching_trkind.push_back(pairct);
+	      }
 	    }
 	  }
 	}
@@ -801,6 +934,8 @@ int main(int argc, char *argv[])
     }
   }
 
+  cout << "Prior to de-duplication, we have " << matching_trkind.size() << " total matching tracklets\n";
+  
   if(matching_trkind.size()<=0) {
     cout << "No matching tracklets were found\n";
     return(0);
@@ -816,7 +951,6 @@ int main(int argc, char *argv[])
       matching_trkind.push_back(matching_trkind2[i]);
     }
   }
-  
   
   cout << matching_trkind.size() << " potentially matching tracklets were found\n";
   outstream1 << matching_trkind.size() << " potentially matching tracklets were found\n";
@@ -870,13 +1004,13 @@ int main(int argc, char *argv[])
     outstream1 << "Launching arc6D01 for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
     arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos2,obsMJD2,obsRA2,obsDec2,sigastrom2,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,outpos, outvel, &bestchi, &astromRMS);
     outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
-    if(astromRMS<max_astrom_rms) {
+    if(astromRMS<1.0) {
       // The fit was good
       matchnum+=1;
       matching_trkind2.push_back(matching_trkind[matchct]);
       outstream1 << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
       if(astromRMS<bestRMS) {
-	if(bestRMS>max_astrom_rms) {
+	if(bestRMS>1.0) {
 	  outstream1 << "the first good fit to be identified\n";
 	} else {
 	  outstream1 << "this fit supplants the previous best, which had astroRMS = " << bestRMS << "\n";
@@ -1014,13 +1148,13 @@ int main(int argc, char *argv[])
       outstream1 << "Launching arc6D01 for new-iteration match " << matchct+1 << " = " << detvec[trkvec[0]].idstring  << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
       arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos2,obsMJD2,obsRA2,obsDec2,sigastrom2,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,outpos, outvel, &bestchi, &astromRMS);
       outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
-      if(astromRMS<max_astrom_rms) {
+      if(astromRMS<1.0) {
 	// The fit was good
 	matchnum+=1;
 	matching_trkind2.push_back(matching_trkind[matchct]);
 	outstream1 << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
 	if(astromRMS<bestRMS) {
-	  if(bestRMS>max_astrom_rms) {
+	  if(bestRMS>1.0) {
 	    outstream1 << "the first good fit to be identified in this pass\n";
 	  } else {
 	    outstream1 << "this fit supplants the previous best, which had astroRMS = " << bestRMS << "\n";
@@ -1133,7 +1267,7 @@ int main(int argc, char *argv[])
       outstream1 << fixed << setprecision(2) << outdetvec[i].trail_len << "," << outdetvec[i].trail_PA << ",";
       outstream1 << fixed << setprecision(4) << outdetvec[i].sigmag << ",";
       outstream1 << fixed << setprecision(3) << outdetvec[i].sig_across << "," << outdetvec[i].sig_along << ",";
-      outstream1 << outdetvec[i].image << "," << outdetvec[i].idstring << "," << outdetvec[i].band << ",";
+      outstream1 <<  outdetvec[i].image << "," << outdetvec[i].idstring << "," << outdetvec[i].band << ",";
       outstream1 << outdetvec[i].obscode << "," << outdetvec[i].known_obj << ",";
       outstream1 << outdetvec[i].det_qual << "," << outdetvec[i].index << "\n";
     }

@@ -21,7 +21,7 @@
 // The observation file must contain observations in heliolinc's hldet format.
 static void show_usage()
 {
-  cerr << "Usage: arctrace01g -cfg configfile -observations obsfile -kepspan time_span_for_Keplerian_fit(day) -minchi min_chi_change -obscode obscodefile -outfile outfile \n";
+  cerr << "Usage: arctrace01g -cfg configfile -observations obsfile -kepspan time_span_for_Keplerian_fit(day) -minchi min_chi_change -obscode obscodefile -outfile outfile -statefile statefile \n";
 }
 
 int main(int argc, char *argv[])
@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
   string obsfile;
   string planetfile;
   string outfile;
+  string statefile;
   double kepspan=15.0;
   long double ldval=0.0L;
   vector <long double> planetmasses;
@@ -275,6 +276,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-statefile" || string(argv[i]) == "-state") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	statefile=argv[++i];
+	i++;
+      }
+      else {
+	cerr << "State vector file keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -285,7 +297,8 @@ int main(int argc, char *argv[])
   cout << "input configuration file " << configfile << "\n";
   cout << "input observation file " << obsfile << "\n";
   cout << "input timespan for Keplerian fit " << kepspan << "\n";
-  cout << "output file " << outfile << "\n";
+  cout << "general output file " << outfile << "\n";
+  cout << "output state vector file " << statefile << "\n";
 
   // Read observatory code file
   status = read_obscode_file2(obscodefile, observatory_list, verbose);
@@ -353,8 +366,13 @@ int main(int argc, char *argv[])
   
   ofstream outstream1 {outfile};
   for(obsct=0;obsct<obsnum;obsct++) {
-    outstream1 << fixed << setprecision(8) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " " << bestRA[obsct] << " " << bestDec[obsct] << fixed << setprecision(8) << " " << (obsRA[obsct]-bestRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0l << " " << (obsDec[obsct]-bestDec[obsct])*3600.0l << " " << bestresid[obsct] << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << "\n";
+    outstream1 << fixed << setprecision(8) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " " << bestRA[obsct] << " " << bestDec[obsct] << fixed << setprecision(8) << " " << (obsRA[obsct]-bestRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0l << " " << (obsDec[obsct]-bestDec[obsct])*3600.0l << " " << bestresid[obsct] << " " << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << "\n";
   }
+  outstream1.close();
+
+  cout << "Writing state vector filed called " << statefile << "\n";
+  outstream1.open(statefile);
+  outstream1 << fixed << setprecision(10) << planetmjd[refpoint] << " " << fixed << setprecision(3) << outpos.x << " " << outpos.y << " " << outpos.z << " "  << fixed << setprecision(10) << outvel.x << " " << outvel.y << " " << outvel.z << " " << fixed << setprecision(5) << bestchi << " " << astromrms << "\n";
   outstream1.close();
   
   return(0);

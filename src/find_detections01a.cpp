@@ -21,6 +21,7 @@ int main(int argc, char *argv[])
   MJD = RA = Dec = dist = 0.0;
   vector <hldet> detvec = {};
   vector <hldet> outdetvec = {};
+  vector <hldet> outdettemp = {};
   vector <det_bsc> ephvec = {};
   det_bsc onedet = det_bsc(0,0,0);
   ifstream instream1;
@@ -179,7 +180,7 @@ int main(int argc, char *argv[])
     ephct++;
   }
   outstream1.close();
-    outstream1.open(outfile);
+  outstream1.open(outfile);
   for(i=0;i<long(outdetvec.size());i++) {
     if(i==0 || outdetvec[i].MJD!=outdetvec[i-1].MJD || outdetvec[i].RA!=outdetvec[i-1].RA || outdetvec[i].Dec!=outdetvec[i-1].Dec) {
       outstream1 << fixed << setprecision(7) << outdetvec[i].MJD << "," << outdetvec[i].RA << "," << outdetvec[i].Dec << ",";

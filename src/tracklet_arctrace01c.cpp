@@ -1,4 +1,9 @@
-// February 14, 2025: tracklet_arctrace01b.cpp:
+// March 13, 2025: tracklet_arctrace01c.cpp:
+// Like tracklet_arctrace01b.cpp, but interpolates the input
+// observation file in time, in order to track objects with high
+// angular velocities more accurately and efficiently.
+
+// Description of ancestor program tracklet_arctrace01b.cpp
 // Like tracklet_arctrace01a.cpp, but takes the input observation file in
 // heliolinc hldet format, and requires an observer code file.
 // Also writes an output file in hldet format.
@@ -133,6 +138,7 @@ int main(int argc, char *argv[])
   vector <long> matching_trkind;
   vector <long> matching_trkind2;
   vector <long> trkvec;
+  vector <long> trkvec_temp;
   long tracklets_added = 0;
   vector <long> detections_added;
   double timetol=1.0;
@@ -145,6 +151,10 @@ int main(int argc, char *argv[])
   double plxcos = 0.0l;
   double plxsin = 0.0l;
   point3LD obspos = point3LD(0,0,0);
+  point3LD targpos = point3LD(0,0,0);
+  point3LD obsvel = point3LD(0,0,0);
+  point3LD targvel = point3LD(0,0,0);
+  long ephct=0;
   double max_astrom_rms = 1.0;
   
   if(argc<9) {
@@ -615,29 +625,49 @@ int main(int argc, char *argv[])
   j=planetfile_startpoint;
   while(j<long(planetmjd.size()) && planetmjd[j]<=mjdend) j++;
   planetfile_endpoint = j; // This is the first point in planetmjd that is after mjdend.
-
+  planetfile_startpoint -= polyorder+1;
+  planetfile_endpoint += polyorder+1;
+  if(planetfile_startpoint<0) planetfile_startpoint=0;
+  if(planetfile_endpoint>long(planetmjd.size()-1)) planetfile_endpoint=planetmjd.size()-1;
+  
   startpos = outpos;
   startvel = outvel;
   integrate_orbit05LD(polyorder, planetnum, planetmjd, planetmasses, planetpos, startpos, startvel, planetfile_startpoint, planetfile_refpoint, planetfile_endpoint, orbit05MJD, orbit05pos, orbit05vel);
+
+  // Load ephMJD vector
+  ephMJD={};
+  ephMJD.push_back(planetmjd[planetfile_startpoint+polyorder+1]);
+  long tmax = (planetmjd[planetfile_endpoint-polyorder-1] - planetmjd[planetfile_startpoint+polyorder+1])/timetol;
+  if(tmax<0) {
+    cerr << "ERROR: starting time and ending time are too close together\n";
+    return(7);
+  }
+  tmax+=2;
+  for(long tct=1;tct<=tmax;tct++) {
+    ldval = planetmjd[planetfile_startpoint+polyorder+1] + (long double)tct*(planetmjd[planetfile_endpoint-polyorder-1] - planetmjd[planetfile_startpoint+polyorder+1])/((long double)tmax);
+    if(ldval>planetmjd[planetfile_endpoint-polyorder-1]) ldval=planetmjd[planetfile_endpoint-polyorder-1];
+    ephMJD.push_back(ldval);
+  }
   
-  for(j=planetfile_startpoint; j<=planetfile_endpoint; j++) {
-    long orbct=j-planetfile_startpoint;
-    if(orbit05MJD[orbct]!=planetmjd[j]) {
-      cerr << "ERROR: MJD mismatch " << orbit05MJD[orbct] << " " << planetmjd[j] << "\n";
-      return(1);
-    }
+  for(ephct=0;ephct<long(ephMJD.size());ephct++) {
+    // Interpolate to get coordinates of target and observer
+    planetpos01LD(ephMJD[ephct], polyorder, planetmjd, Earthpos, obspos);
+    planetpos01LD(ephMJD[ephct], polyorder, planetmjd, Earthvel, obsvel);
+    planetpos01LD(ephMJD[ephct], polyorder, orbit05MJD, orbit05pos, targpos);
+    planetpos01LD(ephMJD[ephct], polyorder, orbit05MJD, orbit05vel, targvel);
+
     // Initial approximation of the coordinates relative to the observer
-    outpos.x = orbit05pos[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - Earthpos[j].z;
+    outpos.x = targpos.x - obspos.x;
+    outpos.y = targpos.y - obspos.y;
+    outpos.z = targpos.z - obspos.z;
     // Initial approximation of the observer-target distance
     ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
     // Convert to meters and divide by the speed of light to get the light travel time.
     light_travel_time = ldval*1000.0/CLIGHT;
     // Light-travel-time corrected version of coordinates relative to the observer
-    outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
+    outpos.x = targpos.x - light_travel_time*targvel.x - obspos.x;
+    outpos.y = targpos.y - light_travel_time*targvel.y - obspos.y;
+    outpos.z = targpos.z - light_travel_time*targvel.z - obspos.z;
     // Light-travel-time corrected observer-target distance
     ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
     // Calculate unit vector
@@ -648,15 +678,15 @@ int main(int argc, char *argv[])
     // Project onto the celestial sphere.
     stateunitLD_to_celestial(outpos, RA1, Dec1);
     // Calculate the position a little bit later
-    outpos.x = orbit05pos[orbct].x - light_travel_time*orbit05vel[orbct].x - Earthpos[j].x;
-    outpos.y = orbit05pos[orbct].y - light_travel_time*orbit05vel[orbct].y - Earthpos[j].y;
-    outpos.z = orbit05pos[orbct].z - light_travel_time*orbit05vel[orbct].z - Earthpos[j].z;
-    outpos.x += TTDELTAT*(orbit05vel[orbct].x - Earthvel[j].x);
-    outpos.y += TTDELTAT*(orbit05vel[orbct].y - Earthvel[j].y);
-    outpos.z += TTDELTAT*(orbit05vel[orbct].z - Earthvel[j].z);
-    //cout << "Earthvel: " << Earthvel[j].x << " " << Earthvel[j].y << " " << Earthvel[j].z << "\n";
-    //cout << "targvel: " << orbit05vel[orbct].x << " " << orbit05vel[orbct].y << " " << orbit05vel[orbct].z << "\n";
-    //cout << "diffs: " << (orbit05vel[orbct].x - Earthvel[j].x) << " " << (orbit05vel[orbct].y - Earthvel[j].y) << " " << (orbit05vel[orbct].z - Earthvel[j].z) << "\n";
+    outpos.x = targpos.x - light_travel_time*targvel.x - obspos.x;
+    outpos.y = targpos.y - light_travel_time*targvel.y - obspos.y;
+    outpos.z = targpos.z - light_travel_time*targvel.z - obspos.z;
+    outpos.x += TTDELTAT*(targvel.x - obsvel.x);
+    outpos.y += TTDELTAT*(targvel.y - obsvel.y);
+    outpos.z += TTDELTAT*(targvel.z - obsvel.z);
+    //cout << "Earthvel: " << obsvel.x << " " << obsvel.y << " " << obsvel.z << "\n";
+    //cout << "targvel: " << targvel.x << " " << targvel.y << " " << targvel.z << "\n";
+    //cout << "diffs: " << (targvel.x - obsvel.x) << " " << (targvel.y - obsvel.y) << " " << (targvel.z - obsvel.z) << "\n";
     ldval = sqrt(outpos.x*outpos.x + outpos.y*outpos.y + outpos.z*outpos.z);
     // Calculate unit vector
     outpos.x /= ldval;
@@ -668,21 +698,17 @@ int main(int argc, char *argv[])
     distradec02(RA1, Dec1, RA2, Dec2, &dist, &pa);
     RAvel = dist*sin(pa/DEGPRAD)/timediff; // Degrees per day
     Decvel = dist*cos(pa/DEGPRAD)/timediff; // Degrees per day
-    ephMJD.push_back(orbit05MJD[orbct]);
     ephRA.push_back(RA1);
     ephDec.push_back(Dec1);
     ephRAvel.push_back(RAvel);
     ephDecvel.push_back(Decvel);
   }
   // FINISHED WITH EPHEMERIS CALCULATION.
-
   outstream1.open(logfile);
-  for(j=0;j<long(ephMJD.size());j++) {
-    cout << fixed << setprecision(6) << "ephemeris point " << j << " " << ephMJD[j] << " " << ephRA[j] << " " << ephDec[j] << " " << ephRAvel[j] << " " << ephDecvel[j] << "\n";
-    outstream1 << fixed << setprecision(6) << "ephemeris point " << j << " " << ephMJD[j] << " " << ephRA[j] << " " << ephDec[j] << " " << ephRAvel[j] << " " << ephDecvel[j] << "\n";
+  for(ephct=0;ephct<long(ephMJD.size());ephct++) {
+    cout << fixed << setprecision(6) << "ephemeris point " << ephct << " " << ephMJD[ephct] << " " << ephRA[ephct] << " " << ephDec[ephct] << " " << ephRAvel[ephct] << " " << ephDecvel[ephct] << "\n";
+    outstream1 << fixed << setprecision(6) << "ephemeris point " << ephct << " " << ephMJD[ephct] << " " << ephRA[ephct] << " " << ephDec[ephct] << " " << ephRAvel[ephct] << " " << ephDecvel[ephct] << "\n";
   }
-  
-
   // READ TRACKLET FILES, AND LOAD TRACKLET VECTORS
   detvec={};
   status=read_pairdet_file(pairdetfile, detvec, verbose);
@@ -835,36 +861,66 @@ int main(int argc, char *argv[])
     obsRA2 = obsDec2 = sigastrom2 = {};
     outdetvec2 = {};
     obsct=tct=0;
-    cout << "Size checks: " << obsMJD.size() << " "  << obsRA.size() << " "  << obsDec.size() << " "  << sigastrom.size() << " "  << sigastrom.size() << "\n";
-    while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
-      if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	cout << "Loading point " << obsct << " from original input vectors\n";
-	// Next point in the time-ordered set is from the orginal observation vectors
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_barypos2.push_back(observer_barypos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-      } else if (tct<long(trkvec.size())) {	
-	cout << "Loading point " << tct << " from new tracklet\n";
-	// Next point in the time-ordered set is from the new tracklet
-	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	obsRA2.push_back(detvec[trkvec[tct]].RA);
-	obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	sigastrom2.push_back(1.0);
-	// Convert input heliocentric observer position to barycentric.
-	planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
-	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
-	observer_barypos2.push_back(tppos);
-	outdetvec2.push_back(detvec[trkvec[tct]]);
-	tct++;
-      } else {
-	cerr << "Error: logically excluded case in loading of new vectors\n";
-	return(5);
+      while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
+        if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
+	  // Next point in the time-ordered set is from the orginal observation vectors
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
+	  // We have two points at the same time, but they are not identical
+	  // Keep the one from the original vectors
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // And also keep the one from the new tracklet
+	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+	  obsRA2.push_back(detvec[trkvec[tct]].RA);
+	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
+	  sigastrom2.push_back(1.0);
+	  // Convert input heliocentric observer position to barycentric.
+	  planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
+	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
+	  observer_barypos2.push_back(tppos);
+	  outdetvec2.push_back(detvec[trkvec[tct]]);
+	  tct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
+	  // We have two exactly identical points. Keep the one from the original vectors...
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // ...and discard the one from the new tracklet
+	  tct++;
+	} else if (tct<long(trkvec.size())) {
+	  // Next point in the time-ordered set is from the new tracklet
+	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+	  obsRA2.push_back(detvec[trkvec[tct]].RA);
+	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
+	  sigastrom2.push_back(1.0);
+	  // Convert input heliocentric observer position to barycentric.
+	  planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
+	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
+	  observer_barypos2.push_back(tppos);
+	  outdetvec2.push_back(detvec[trkvec[tct]]);
+	  tct++;
+	} else {
+	  cerr << "Error: logically excluded case in loading of new vectors\n";
+	  return(5);
+	}
       }
-    }
+    cout << "Size checks: " << obsMJD.size() << " "  << obsRA.size() << " "  << obsDec.size() << " "  << sigastrom.size() << " "  << sigastrom.size() << "\n";
     // Perform orbit-fit to augmented input data
     cout << "Launching arc6D01 for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points\n";
     outstream1 << "Launching arc6D01 for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
@@ -894,14 +950,11 @@ int main(int argc, char *argv[])
   
   if(matchnum>0) {
     // Repeat the best fit
-    tracklets_added++;
     matchct=bestmatch;
     pairct = matching_trkind[matchct];
     trkvec={};
     trkvec = tracklet_lookup(trk2det, pairct);
-    for(tct=0;tct<long(trkvec.size());tct++) {
-      detections_added.push_back(trkvec[tct]);
-    }
+    trkvec_temp={};
     cout << "Attempting orbit fit for the best match: number " << matchct << ", with " << trkvec.size() << " points\n";
     observer_barypos2 = {};
     obsMJD2 = {};
@@ -910,7 +963,6 @@ int main(int argc, char *argv[])
     obsct=tct=0;   
     while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
       if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	cout << "Loading point " << obsct << " from original input vectors\n";
 	// Next point in the time-ordered set is from the orginal observation vectors
 	obsMJD2.push_back(obsMJD[obsct]);
 	obsDec2.push_back(obsDec[obsct]);
@@ -919,8 +971,40 @@ int main(int argc, char *argv[])
 	observer_barypos2.push_back(observer_barypos[obsct]);
 	outdetvec2.push_back(outdetvec[obsct]);
 	obsct++;
-      } else if (tct<long(trkvec.size())) {	
-	cout << "Loading point " << tct << " from new tracklet\n";
+      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
+	// We have two points at the same time, but they are not identical
+	// Keep the one from the original vectors
+	obsMJD2.push_back(obsMJD[obsct]);
+	obsDec2.push_back(obsDec[obsct]);
+	obsRA2.push_back(obsRA[obsct]);
+	sigastrom2.push_back(sigastrom[obsct]);
+	observer_barypos2.push_back(observer_barypos[obsct]);
+	outdetvec2.push_back(outdetvec[obsct]);
+	obsct++;
+	// And also keep the one from the new tracklet
+	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+	obsRA2.push_back(detvec[trkvec[tct]].RA);
+	obsDec2.push_back(detvec[trkvec[tct]].Dec);
+	sigastrom2.push_back(1.0);
+	// Convert input heliocentric observer position to barycentric.
+	planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
+	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
+	observer_barypos2.push_back(tppos);
+	outdetvec2.push_back(detvec[trkvec[tct]]);
+	trkvec_temp.push_back(trkvec[tct]);
+	tct++;
+      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
+	// We have two exactly identical points. Keep the one from the original vectors...
+	obsMJD2.push_back(obsMJD[obsct]);
+	obsDec2.push_back(obsDec[obsct]);
+	obsRA2.push_back(obsRA[obsct]);
+	sigastrom2.push_back(sigastrom[obsct]);
+	observer_barypos2.push_back(observer_barypos[obsct]);
+	outdetvec2.push_back(outdetvec[obsct]);
+	obsct++;
+	// ...and discard the one from the new tracklet
+	tct++;
+      } else if (tct<long(trkvec.size())) {
 	// Next point in the time-ordered set is from the new tracklet
 	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
 	obsRA2.push_back(detvec[trkvec[tct]].RA);
@@ -931,12 +1015,20 @@ int main(int argc, char *argv[])
 	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
 	observer_barypos2.push_back(tppos);
 	outdetvec2.push_back(detvec[trkvec[tct]]);
+	trkvec_temp.push_back(trkvec[tct]);
 	tct++;
       } else {
 	cerr << "Error: logically excluded case in loading of new vectors\n";
 	return(5);
       }
     }
+    if(trkvec_temp.size()>0) {
+      tracklets_added++;
+      for(tct=0;tct<long(trkvec_temp.size());tct++) {
+	detections_added.push_back(trkvec_temp[tct]);
+      }
+    }
+    
     // Load the augmented vectors back into the base vectors, so we can augment again (or output).
     observer_barypos = observer_barypos2;
     obsMJD = obsMJD2;
@@ -992,6 +1084,38 @@ int main(int argc, char *argv[])
 	  observer_barypos2.push_back(observer_barypos[obsct]);
 	  outdetvec2.push_back(outdetvec[obsct]);
 	  obsct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
+	  // We have two points at the same time, but they are not identical
+	  // Keep the one from the original vectors
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // And also keep the one from the new tracklet
+	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+	  obsRA2.push_back(detvec[trkvec[tct]].RA);
+	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
+	  sigastrom2.push_back(1.0);
+	  // Convert input heliocentric observer position to barycentric.
+	  planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
+	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
+	  observer_barypos2.push_back(tppos);
+	  outdetvec2.push_back(detvec[trkvec[tct]]);
+	  tct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
+	  // We have two exactly identical points. Keep the one from the original vectors...
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // ...and discard the one from the new tracklet
+	  tct++;
 	} else if (tct<long(trkvec.size())) {
 	  // Next point in the time-ordered set is from the new tracklet
 	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
@@ -1009,7 +1133,7 @@ int main(int argc, char *argv[])
 	  return(5);
 	}
       }
-      // Perform orbit-fit to augmented input data
+     // Perform orbit-fit to augmented input data
       cout << "Launching arc6D01 for new-iteration match " << matchct+1 << " of " << matching_trkind.size() << ", with " << obsMJD2.size() << " data points\n";
       outstream1 << "Launching arc6D01 for new-iteration match " << matchct+1 << " = " << detvec[trkvec[0]].idstring  << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
       arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos2,obsMJD2,obsRA2,obsDec2,sigastrom2,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,outpos, outvel, &bestchi, &astromRMS);
@@ -1034,14 +1158,11 @@ int main(int argc, char *argv[])
     }
     if(matchnum>0) {
       // Repeat the best fit
-      tracklets_added++;
       matchct=bestmatch;
       pairct = matching_trkind[matchct];
       trkvec={};
       trkvec = tracklet_lookup(trk2det, pairct);
-      for(tct=0;tct<long(trkvec.size());tct++) {
-	detections_added.push_back(trkvec[tct]);
-      }
+      trkvec_temp={};
       cout << "Attempting orbit fit for potential match number " << matchct << ", with " << trkvec.size() << " points\n";
       observer_barypos2 = {};
       obsMJD2 = {};
@@ -1058,6 +1179,39 @@ int main(int argc, char *argv[])
 	  observer_barypos2.push_back(observer_barypos[obsct]);
 	  outdetvec2.push_back(outdetvec[obsct]);
 	  obsct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
+	  // We have two points at the same time, but they are not identical
+	  // Keep the one from the original vectors
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // And also keep the one from the new tracklet
+	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+	  obsRA2.push_back(detvec[trkvec[tct]].RA);
+	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
+	  sigastrom2.push_back(1.0);
+	  // Convert input heliocentric observer position to barycentric.
+	  planetposvel01LD(image_log[detvec[trkvec[tct]].image].MJD, polyorder, planetmjd, Sunpos, Sunvel, outpos, outvel);
+	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
+	  observer_barypos2.push_back(tppos);
+	  outdetvec2.push_back(detvec[trkvec[tct]]);
+	  trkvec_temp.push_back(trkvec[tct]);
+	  tct++;
+	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
+	  // We have two exactly identical points. Keep the one from the original vectors...
+	  obsMJD2.push_back(obsMJD[obsct]);
+	  obsDec2.push_back(obsDec[obsct]);
+	  obsRA2.push_back(obsRA[obsct]);
+	  sigastrom2.push_back(sigastrom[obsct]);
+	  observer_barypos2.push_back(observer_barypos[obsct]);
+	  outdetvec2.push_back(outdetvec[obsct]);
+	  obsct++;
+	  // ...and discard the one from the new tracklet
+	  tct++;
 	} else if (tct<long(trkvec.size())) {
 	  // Next point in the time-ordered set is from the new tracklet
 	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
@@ -1069,10 +1223,17 @@ int main(int argc, char *argv[])
 	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X + outpos.x, image_log[detvec[trkvec[tct]].image].Y + outpos.y, image_log[detvec[trkvec[tct]].image].Z + outpos.z);
 	  observer_barypos2.push_back(tppos);
 	  outdetvec2.push_back(detvec[trkvec[tct]]);
+	  trkvec_temp.push_back(trkvec[tct]);
 	  tct++;
 	} else {
 	  cerr << "Error: logically excluded case in loading of new vectors\n";
 	  return(5);
+	}
+      }
+      if(trkvec_temp.size()>0) {
+	tracklets_added++;
+	for(tct=0;tct<long(trkvec_temp.size());tct++) {
+	  detections_added.push_back(trkvec_temp[tct]);
 	}
       }
       // Load the augmented vectors back into the base vectors, so we can augment again (or output).
