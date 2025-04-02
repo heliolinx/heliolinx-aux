@@ -62,8 +62,6 @@ int main(int argc, char *argv[])
   vector <string> linestringvec;
   point3LD outpos = point3LD(0,0,0);
   point3LD outvel = point3LD(0,0,0);
-  point3LD startpos = point3LD(0,0,0);
-  point3LD startvel = point3LD(0,0,0);
   vector <long double> scalestate;
   make_LDvec(60,scalestate);
   vector <long double> newstate;
@@ -358,7 +356,7 @@ int main(int argc, char *argv[])
     return(1);
   }
 
-  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange,startpos,startvel, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromrms, &refpoint);
+  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromrms, &refpoint);
   
   cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromrms << "\n";
   cout << fixed << setprecision(10) << "Best state vectors at MJD " << planetmjd[refpoint] << " : " << fixed << setprecision(3) << outpos.x << " " << outpos.y << " " << outpos.z << " "  << fixed << setprecision(10) << outvel.x << " " << outvel.y << " " << outvel.z << "\n";
