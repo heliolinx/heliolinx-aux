@@ -50,7 +50,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: count_finddable02c -dets detfile -colformat column format file / \n";
+  cerr << "Usage: count_findable02c -dets detfile -colformat column format file / \n";
   cerr << "-maxtime max inter-image time interval (hr) -maxvel maximum angular velocity (deg/day) /\n";
   cerr << "-mintracktime min tracklet time span (sec) -outfile output file\n";
   cerr << "\nor, at minimum\n\n";
@@ -330,7 +330,7 @@ int main(int argc, char *argv[])
       else if(j==helioxcol) heliox=stold(stest);
       else if(j==helioycol) helioy=stold(stest);
       else if(j==heliozcol) helioz=stold(stest);
-      cout << "Column " << j << " read as " << stest << ".\n";
+      //cout << "Column " << j << " read as " << stest << ".\n";
     }
     if(reachedeof == 0) {
       // cout<<"MJD, RA, Dec: " << MJD-floor(MJD) << " " << RA << " " << Dec << "\n";
