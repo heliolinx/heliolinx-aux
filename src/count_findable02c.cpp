@@ -31,7 +31,6 @@
 #define HELIOYCOL 16
 #define HELIOZCOL 17
 #define MINOBSINTERVAL 1.0 // Minimum time-between-images in seconds
-#define IMAGETIMETOL 1.0 // Tolerance for matching image time, in seconds
 #define MAXVEL 1.5 // Default max angular velocity in deg/day.
 #define MAXTIME 1.5 // Default max inter-image time interval
                     // for tracklets, in hours (will be converted
@@ -50,9 +49,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: count_findable02c -dets detfile -colformat column format file / \n";
-  cerr << "-maxtime max inter-image time interval (hr) -maxvel maximum angular velocity (deg/day) /\n";
-  cerr << "-mintracktime min tracklet time span (sec) -outfile output file\n";
+  cerr << "Usage: count_findable02c -dets detfile -colformat column format file -mintrkpts min points per tracklet -minobsnights min number of distinct nights -maxtime max inter-image time interval (hr) -maxvel maximum angular velocity (deg/day) -mintracktime min tracklet time span (sec) -outfile output file\n";
   cerr << "\nor, at minimum\n\n";
   cerr << "count_findable02c -dets detfile -outfile output file\n";
   cerr << "Note well that the minimum invocation will leave things\n";
@@ -67,6 +64,7 @@ int main(int argc, char *argv[])
   vector <det_OC_index> trackletvec ={};
   vector <long double> trackletmjd={};
   vector <long double> long_trackletmjd={};
+  vector <long> trackletpointnum={};
   vector <long double> trackletarc={};
   vector <long double> tracklet_timespan={};
   long double minarc=0.0l;
@@ -77,6 +75,8 @@ int main(int argc, char *argv[])
   long double max_timespan=0.0l;
   int validity = 0;
   double mjdmean = 0;
+  int mintrkpts=2;
+  int minobsnights=MINDAYSTEPS+1;
   string idstring;
   string lnfromfile;
   string stest;
@@ -131,7 +131,7 @@ int main(int argc, char *argv[])
   int colreadct=0;
   int status=0;
 
-  if(argc!=13 && argc!=11  && argc!=9 && argc!=7 && argc!=5)
+  if(argc!=17 && argc!=15 && argc!=13 && argc!=11  && argc!=9 && argc!=7 && argc!=5)
     {
       show_usage();
       return(1);
@@ -173,7 +173,27 @@ int main(int argc, char *argv[])
 	  return(2);
 	}      
       } else {
-	cerr << "Output maximum inter-image time interval\nkeyword supplied with no corresponding argument\n";
+	cerr << "Maximum inter-image time interval\nkeyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-mintrkpts") {
+      if(i+1 < argc) {
+	//There is still something to read;
+        mintrkpts=stoi(argv[++i]);
+	i++;
+      } else {
+	cerr << "Min tracklet length keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    }  else if(string(argv[i]) == "-minobsnights") {
+      if(i+1 < argc) {
+	//There is still something to read;
+        minobsnights=stoi(argv[++i]);
+	i++;
+      } else {
+	cerr << "Min observing nights keyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -205,7 +225,7 @@ int main(int argc, char *argv[])
 	}
       }
       else {
-	cerr << "Output minimum tracklet timespan\nkeyword supplied with no corresponding argument\n";
+	cerr << "Minimum tracklet timespan\nkeyword supplied with no corresponding argument\n";
 	show_usage();
 	return(1);
       }
@@ -385,6 +405,7 @@ int main(int argc, char *argv[])
       trackletmjd={};
       trackletarc={};
       tracklet_timespan={};
+      trackletpointnum={};
       trackletvec={};
       trackletcount=0;
       tracklet_firstpoint=0;
@@ -406,6 +427,7 @@ int main(int argc, char *argv[])
 	  // was in fact a singleton.
 	  if(trackletvec.size()>1) {
 	    // It was a valid tracklet.
+	    trackletpointnum.push_back(long(trackletvec.size()));
 	    //for(j=0;j<trackletvec.size();j++) {
 	    //cout << "trackletpoint " << j << ": " << trackletvec[j].MJD << " "<< trackletvec[j].RA << " "<< trackletvec[j].Dec << "\n";
 	    //}
@@ -436,6 +458,7 @@ int main(int argc, char *argv[])
       // Handle a possible final tracklet that may have been left hanging.
       if(trackletvec.size()>1) {
 	// It was a valid tracklet.
+	trackletpointnum.push_back(long(trackletvec.size()));
 	// Calculate the mean MJD.
 	mjdmean=0.0;
 	for(j=0;j<long(trackletvec.size());j++) mjdmean += trackletvec[j].MJD;
@@ -455,10 +478,11 @@ int main(int argc, char *argv[])
 	ldmedian_minmax(tracklet_timespan,med_timespan,min_timespan,max_timespan);
       }
       // Create a version of the trackletmjd vector that only
-      // contains tracklets with timespan at least equal to mintracktime
+      // contains tracklets of length at least mintrkpts, and
+      // timespan at least equal to mintracktime
       long_trackletmjd={};
       for(i=0;i<long(trackletmjd.size()); i++) {
-	if(tracklet_timespan[i]>=mintracktime) {
+	if(tracklet_timespan[i]>=mintracktime && trackletpointnum[i]>=mintrkpts) {
 	  // This tracklet is long enough: add it to the long tracklet vector
 	  long_trackletmjd.push_back(trackletmjd[i]);
 	}
@@ -533,7 +557,7 @@ int main(int argc, char *argv[])
 	a = -MGsun*0.5L/E;
 	e = sqrt(1.0L + 2.0L*E*lscalar*lscalar/MGsun/MGsun);
       }
-      if(timespan >= MINSPAN && long(trackvec.size())>=MINPOINTS && long_tracknightcount >= MINDAYSTEPS) {
+      if(timespan >= MINSPAN && long(trackvec.size())>=MINPOINTS && long_tracknightcount >= minobsnights-1) {
 	// This simulated object had sufficient observations
 	// to enable qualifying discovery.
 	validity = 1;
