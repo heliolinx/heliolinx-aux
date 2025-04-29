@@ -27,9 +27,6 @@
 #define MJDCOL 2
 #define RACOL 3
 #define DECCOL 4
-#define HELIOXCOL 15
-#define HELIOYCOL 16
-#define HELIOZCOL 17
 #define MINOBSINTERVAL 1.0 // Minimum time-between-images in seconds
 #define MAXVEL 1.5 // Default max angular velocity in deg/day.
 #define MAXTIME 1.5 // Default max inter-image time interval
@@ -46,6 +43,7 @@
                            // on separate nights.
 #define MINTRACKTIME 300.0 // Minimum tracklet timespan in seconds.
 #define COLS_TO_READ 7
+#define DEBUG 0
 
 static void show_usage()
 {
@@ -101,6 +99,7 @@ int main(int argc, char *argv[])
   long lct=0;
   long double timespan = 0.0L;
   long double currentstep = 0.0L;
+  long double currentspan = 0.0L;
   double angdist=0l;
   double angspeed=0l;
   int tracknightcount=0;
@@ -124,9 +123,10 @@ int main(int argc, char *argv[])
   int mjdcol = MJDCOL;
   int racol = RACOL;
   int deccol = DECCOL;
-  int helioxcol = HELIOXCOL;
-  int helioycol = HELIOYCOL;
-  int heliozcol = HELIOZCOL;
+  int helioxcol = 0;
+  int helioycol = 0;
+  int heliozcol = 0;
+  int valid_statevec=1;
   ifstream instream1;
   int colreadct=0;
   int status=0;
@@ -314,6 +314,11 @@ int main(int argc, char *argv[])
   cout << "HELIOYCOL " << helioycol << "\n";
   cout << "HELIOZCOL " << heliozcol << "\n";
 
+  if(helioxcol<=0 || helioycol<=0 || heliozcol<=0) {
+    cout << "No columns for input state vectors were specified, so orbits will not be calculated\n";
+    valid_statevec=0;
+  } else valid_statevec=1;
+  
   instream1.open(indetfile);
   if(!instream1) {
     cerr << "can't open input file " << indetfile << "\n";
@@ -347,9 +352,9 @@ int main(int argc, char *argv[])
       if(j==mjdcol) MJD=stold(stest);
       else if(j==racol) RA=stold(stest);
       else if(j==deccol) Dec=stold(stest);
-      else if(j==helioxcol) heliox=stold(stest);
-      else if(j==helioycol) helioy=stold(stest);
-      else if(j==heliozcol) helioz=stold(stest);
+      else if(valid_statevec>0 && j==helioxcol) heliox=stold(stest);
+      else if(valid_statevec>0 && j==helioycol) helioy=stold(stest);
+      else if(valid_statevec>0 && j==heliozcol) helioz=stold(stest);
       //cout << "Column " << j << " read as " << stest << ".\n";
     }
     if(reachedeof == 0) {
@@ -412,11 +417,12 @@ int main(int argc, char *argv[])
       trackletvec.push_back(trackvec[tracklet_firstpoint]);
       // cout << "Preparing to probe track for object " << idstring << " with " << trackvec.size() << " points\n";
       for(i=1; i<long(trackvec.size()); i++) {
-	currentstep = trackvec[i].MJD - trackvec[tracklet_firstpoint].MJD;
+	currentspan = trackvec[i].MJD - trackvec[tracklet_firstpoint].MJD;
+	currentstep = trackvec[i].MJD - trackvec[i-1].MJD;
 	angdist = distradec01(trackvec[tracklet_firstpoint].RA, trackvec[tracklet_firstpoint].Dec, trackvec[i].RA, trackvec[i].Dec); // Distance in degrees
-	angspeed = angdist/currentstep; // Angular velocity in deg/day
+	angspeed = angdist/currentspan; // Angular velocity in deg/day
 	// cout << "firstpoint=" << tracklet_firstpoint << ", i=" << i << ", step dist speed = " << currentstep*86400.0 << " " << angdist*3600.0 << " " << angspeed << "\n";
-	if(currentstep>MINOBSINTERVAL/SOLARDAY && currentstep<=maxtime && angdist<=maxdist && angspeed<=maxvel) {
+	if(currentspan>MINOBSINTERVAL/SOLARDAY && currentspan<=INTRANIGHTSTEP && currentstep<=maxtime && angdist<=maxdist && angspeed<=maxvel) {
 	  // Detection i is part of an valid tracket starting with
 	  // tracklet_firstpoint, safely contained within a single night,
 	  // and meeting requirements on maximum separation and angular velocity.
@@ -482,6 +488,7 @@ int main(int argc, char *argv[])
       // timespan at least equal to mintracktime
       long_trackletmjd={};
       for(i=0;i<long(trackletmjd.size()); i++) {
+	if(DEBUG>0) cout << "Tracklet " << i << " has " << trackletpointnum[i] << " points and spans " << tracklet_timespan[i] << " seconds\n";
 	if(tracklet_timespan[i]>=mintracktime && trackletpointnum[i]>=mintrkpts) {
 	  // This tracklet is long enough: add it to the long tracklet vector
 	  long_trackletmjd.push_back(trackletmjd[i]);
@@ -507,55 +514,60 @@ int main(int argc, char *argv[])
 	  long_tracknightcount++;
 	}
       }
-      if(trackvec.size()==1) {
-	// Cannot calculate a velocity, but at least get heliocentric distance.
-	vp1=0;
-	targpos1.x=trackvec[vp1].x;
-	targpos1.y=trackvec[vp1].y;
-	targpos1.z=trackvec[vp1].z;
-	r0 = sqrt(dotprod3d(targpos1,targpos1));
-      } else if (trackvec.size()>1) {
-	// Calculate the orbital semimajor axis and eccentricity
-	// Find two points with suitable time-separation for
-	// this purpose.
-	vp1=vp2=0;
-	maxtimestep=0.0;
-	for(i=0; i<long(trackvec.size()-1); i++) {
-	  for(j=i+1;  j<long(trackvec.size()); j++) {
-	    timestep = trackvec[j].MJD - trackvec[i].MJD;
-	    if(timestep>maxtimestep) {
-	      maxtimestep = timestep;
-	      vp1=i;
-	      vp2=j;
+      if(valid_statevec>0) {
+	if(trackvec.size()==1) {
+	  // Cannot calculate a velocity, but at least get heliocentric distance.
+	  vp1=0;
+	  targpos1.x=trackvec[vp1].x;
+	  targpos1.y=trackvec[vp1].y;
+	  targpos1.z=trackvec[vp1].z;
+	  r0 = sqrt(dotprod3d(targpos1,targpos1));
+	} else if (trackvec.size()>1) {
+	  // Calculate the orbital semimajor axis and eccentricity
+	  // Find two points with suitable time-separation for
+	  // this purpose.
+	  vp1=vp2=0;
+	  maxtimestep=0.0;
+	  for(i=0; i<long(trackvec.size()-1); i++) {
+	    for(j=i+1;  j<long(trackvec.size()); j++) {
+	      timestep = trackvec[j].MJD - trackvec[i].MJD;
+	      if(timestep>maxtimestep) {
+		maxtimestep = timestep;
+		vp1=i;
+		vp2=j;
+	      }
 	    }
 	  }
-	}
-	targpos1.x=trackvec[vp1].x;
-	targpos1.y=trackvec[vp1].y;
-	targpos1.z=trackvec[vp1].z;
-	targpos2.x=trackvec[vp2].x;
-	targpos2.y=trackvec[vp2].y;
-	targpos2.z=trackvec[vp2].z;
-	// Calculate heliocentric velocity vector.
-	status=0;
-	status = Twopoint_Kepler_vstar(MGsun, targpos1, targpos2, maxtimestep, targvel, KVSTAR_ITMAX);
-	if(status!=0) {
-	  cerr << "ERROR: Twopoint_Kepler_vstar() exited with error code " << status << "\n";
-	  cout << "vp1, vp2: " << vp1 << " " << vp2 << " " << trackvec.size() << " targpos1,2: " << targpos1.x << " " << targpos1.y << " " << targpos1.z << " , " << targpos2.x << " " << targpos2.y << " " << targpos2.z << " maxtime = " << maxtimestep << "\n";
-	  return(status);
-	}
-	r0 = vecabs3d(targpos1);
-	v0 = sqrt(dotprod3d(targvel,targvel));
-	heliovel = dotprod3d(targpos1,targvel)/r0;  // units should be km/sec.
+	  targpos1.x=trackvec[vp1].x;
+	  targpos1.y=trackvec[vp1].y;
+	  targpos1.z=trackvec[vp1].z;
+	  targpos2.x=trackvec[vp2].x;
+	  targpos2.y=trackvec[vp2].y;
+	  targpos2.z=trackvec[vp2].z;
+	  // Calculate heliocentric velocity vector.
+	  status=0;
+	  status = Twopoint_Kepler_vstar(MGsun, targpos1, targpos2, maxtimestep, targvel, KVSTAR_ITMAX);
+	  if(status!=0) {
+	    cerr << "ERROR: Twopoint_Kepler_vstar() exited with error code " << status << "\n";
+	    cout << "vp1, vp2: " << vp1 << " " << vp2 << " " << trackvec.size() << " targpos1,2: " << targpos1.x << " " << targpos1.y << " " << targpos1.z << " , " << targpos2.x << " " << targpos2.y << " " << targpos2.z << " maxtime = " << maxtimestep << "\n";
+	    return(status);
+	  }
+	  r0 = vecabs3d(targpos1);
+	  v0 = sqrt(dotprod3d(targvel,targvel));
+	  heliovel = dotprod3d(targpos1,targvel)/r0;  // units should be km/sec.
   
-	// Calculate specific energy and angular momentum
-	E = 0.5L*v0*v0 - MGsun/r0;
-	lvec = crossprod3d(targpos1,targvel);
-	lscalar = sqrt(dotprod3d(lvec,lvec));
+	  // Calculate specific energy and angular momentum
+	  E = 0.5L*v0*v0 - MGsun/r0;
+	  lvec = crossprod3d(targpos1,targvel);
+	  lscalar = sqrt(dotprod3d(lvec,lvec));
 		 
-	// Calculate a and e: orbital semimajor axis and eccentricity.
-	a = -MGsun*0.5L/E;
-	e = sqrt(1.0L + 2.0L*E*lscalar*lscalar/MGsun/MGsun);
+	  // Calculate a and e: orbital semimajor axis and eccentricity.
+	  a = -MGsun*0.5L/E;
+	  e = sqrt(1.0L + 2.0L*E*lscalar*lscalar/MGsun/MGsun);
+	}
+      } else {
+	// State vectors were not available: no orbit can be caculated
+	r0 = heliovel = a = e = 0.0; 
       }
       if(timespan >= MINSPAN && long(trackvec.size())>=MINPOINTS && long_tracknightcount >= minobsnights-1) {
 	// This simulated object had sufficient observations
