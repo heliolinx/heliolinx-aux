@@ -468,17 +468,18 @@ struct LinkRefineConfig {
 };
 
 struct LinkPurifyConfig {
-  int useorbMJD = 0;           // Use the MJD of the orbit epoch for each linkage, rather than the
+  int useorbMJD = 1;           // Use the MJD of the orbit epoch for each linkage, rather than the
                                // overall reference MJD. Operative only for recursive usage of
                                // link_purify or link_planarity: otherwise, no prior orbit fit
                                // exists and the code falls back on the reference MJD.
-  int simptype = 0;            // Defines how Herget_simplex_int constructs the starting simplex
+  int simptype = 1;            // Defines how Herget_simplex_int constructs the starting simplex
                                //   in the 2-D parameter space of geocentric distance at first detection
                                //   (geodist1) and geocentric distance at last detection (geodist2)
                                //   simptype=0 uses multiplicative scaling to create an approximately isoceles right triangle:
                                //   simptype=1 creates a simplex elongated along the direction defined by geodist1=geodist2
                                //   simptype=2 uses subtraction to create a precise isoceles right triangle
-  int ptpow = 1;               // Power to which we raise the number of unique detections, when calculating the cluster quality metric.
+  int ptpow = -1;              // Power to which we raise the number of unique detections, when calculating the cluster quality metric.
+                               // Note: negative value triggers a special mode with superior performance 
   int nightpow = 1;            // Power to which we raise the number of distinct observing nights, when calculating the cluster quality metric.
   int timepow = 0;             // Power to which we raise the total temporal span of the linkage, when calculating the cluster quality metric.
   int rmspow = 2;              // Power to which we raise the RMS astrometric residual when calculating the cluster quality metric.
@@ -1685,6 +1686,7 @@ int nplanetgrab01LD(int pointrequest, int planetnum, const vector <long double> 
 int observer_barycoords01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <double> &posmjd, const vector <point3d> &planetpos, point3d &outpos);
 int observer_barycoords01LD(long double detmjd, int polyorder, long double lon, long double obscos, long double obssine, const vector <long double> &posmjd, const vector <point3LD> &planetpos, point3LD &outpos);
 int observer_baryvel01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <double> &posmjd, const vector <point3d> &planetpos, const vector <point3d> &planetvel, point3d &outpos, point3d &outvel);
+int observer_baryvel01LD(long double detmjd, int polyorder, long double lon, long double obscos, long double obssine, const vector <long double> &posmjd, const vector <point3LD> &planetpos, const vector <point3LD> &planetvel, point3LD &outpos, point3LD &outvel);
 int observer_baryvel01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <EarthState> &earthpos, point3d &outpos, point3d &outvel);
 int observer_geocoords01(double detmjd, double lon, double obscos, double obssine, point3d &outpos);
 int helioproj01(point3d unitbary, point3d obsbary,double heliodist,double &geodist, point3d &projbary);
@@ -1723,7 +1725,9 @@ long double weight_posvel_rms(const vector <point3LD> &poscluster,const vector <
 int linfituw01(const vector <double> &x, const vector <double> &y, double &slope, double &intercept);
 int linfit01(const vector <double> &x, const vector <double> &y, const vector <double> &yerr, double &slope, double &intercept);
 int multilinfit01(const vector <double> &yvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec, int verbose);
+int polyfit01(const vector <double> &yvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec);
 int multilinfit02(const vector <double> &yvec, const vector <double> &sigvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec, int verbose);
+int polyfit02(const vector <double> &yvec, const vector <double> &sigvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec);
 int multilinfit02b(const vector <double> &yvec, const vector <double> &varvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec, int verbose);
 int arc2cel01(double racenter,double deccenter,double dist,double pa,double &outra,double &outdec);
 int obscode_lookup(const vector <observatory> &observatory_list, const char* obscode, double &obslon, double &plxcos,double &plxsin);
@@ -1749,8 +1753,6 @@ double gaussian_deviate();
 int uvw_to_galcoord(const double &u, const double &v, const double &w, double &RA, double &Dec);
 long double unitvar(mt19937_64 &generator);
 double gaussian_deviate_mt(mt19937_64 &generator);
-int multilinfit01(const vector <double> &yvec, const vector <double> &sigvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec);
-int polyfit01(const vector <double> &yvec, const vector <double> &sigvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec);
 int vaneproj01LD(point3LD unitbary, point3LD obsbary, long double ecliplon, long double &geodist, point3LD &projbary);
 int vaneproj01d(point3d unitbary, point3d obsbary, double ecliplon, double min_proj_sine, double &geodist, point3d &projbary);
 double Twopoint_KepQ(double x);
@@ -1826,6 +1828,7 @@ int make_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrac
 int make_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
+int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <hlimage> &image_log,vector <tracklet> &tracklets, vector <longpair> &trk2det, int verbose);
 int trk2statevec(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
@@ -1920,3 +1923,4 @@ int arctrace02(int polyorder, int planetnum, const vector <long double> &planetm
 int arctrace03(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double kepspan, long double minchichange, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int *refpoint);
 int eigensolve01(const vector <vector <long double>> &A, vector <vector <long double>> &E, vector <long double> &eigenvals, long double eigenoffmax, long eigenitmax);
 int eigensolve02(const vector <vector <long double>> &A, vector <vector <long double>> &E, vector <long double> &eigenvals, long double eigenoffmax, long eigenitmax);
+int anglevec_meanrms(const vector <double> &angles, double period, double *median, double *mean, double *rms);

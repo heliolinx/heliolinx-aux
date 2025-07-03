@@ -5798,6 +5798,89 @@ int observer_baryvel01(double detmjd, int polyorder, double lon, double obscos, 
   return(0);
 }
 
+// observer_baryvel01LD: May 12, 2025:
+// Exactly like observer_baryvel01, but uses long double precision.
+// Note that the handling of Earth's rotation assumes that the
+// input MJD is UT1, while the ephemeris vectors posmjd
+// and planetpos are in dynamical TT. Hence, after calculating
+// aspects related to Earth's rotation with detmjd as input,
+// planetpos01 is called which internally converts the input
+// UT1 into TT.
+int observer_baryvel01LD(long double detmjd, int polyorder, long double lon, long double obscos, long double obssine, const vector <long double> &posmjd, const vector <point3LD> &planetpos, const vector <point3LD> &planetvel, point3LD &outpos, point3LD &outvel)
+{
+  long double gmst=0;
+  long double djdoff = detmjd-51544.5l;
+  long double zenithRA=0.0l;
+  long double zenithDec=0.0l;
+  long double velRA=0.0l; // RA of the observer's geocentric velocity vector
+  long double velDec=0.0l; // Dec of the observer's geocentric velocity vector, always 0.
+  long double junkRA=0.0l;
+  long double junkDec=0.0l;
+  long double crad = sqrt(obscos*obscos + obssine*obssine)*EARTHEQUATRAD;
+  long double cvel = 2.0l*M_PI*obscos*EARTHEQUATRAD/SIDEREALDAY;
+  point3LD obs_from_geocen = point3LD(0,0,0);
+  point3LD vel_from_geocen = point3LD(0,0,0);
+  point3LD geocen_from_barycen = point3LD(0,0,0);
+  point3LD vel_from_barycen = point3LD(0,0,0);
+
+  gmst = 18.697374558l + 24.06570982441908l*djdoff;
+  // Add the longitude, converted to hours.
+  // Note: at this point it stops being gmst.
+  gmst += lon/15.0l;
+  // Get a value between 0 and 24.0.
+  while(gmst>=24.0l) gmst-=24.0l;
+  while(gmst<0.0l) gmst+=24.0l;
+  // Convert to degrees
+  zenithRA = gmst * 15.0l;
+  // Get zenithDec    
+  if(obscos!=0.0l) {
+    zenithDec = atan(obssine/obscos)*DEGPRAD;
+  } else if(obssine>=0.0l) {
+    zenithDec = 90.0l;
+  } else {
+    zenithDec=-90.0l;
+  }
+  // Calculate RA and Dec of the observer's geocentric velocity vector.
+  velRA = zenithRA+90.0l;
+  if(velRA >= 360.0l) velRA -= 360.0l;
+  velDec = 0.0l;
+  
+  // Now zenithRA and zenithDec are epoch-of-date coordinates.
+  // If you want them in J2000.0, this is the place to convert them.
+  int precesscon=-1; //Precess epoch-of-date to J2000.0
+  junkRA = zenithRA/DEGPRAD;
+  junkDec = zenithDec/DEGPRAD;
+  precess01aLD(junkRA,junkDec,detmjd,&zenithRA,&zenithDec,precesscon);
+  zenithRA*=DEGPRAD;
+  zenithDec*=DEGPRAD;
+  celestial_to_statevecLD(zenithRA,zenithDec,crad,obs_from_geocen);
+  // crad is the distance from the geocenter to the observer, in AU.
+  // Now velRA and velDec are also epoch-of-date coordinates,
+  // and hence should be converted to J2000.0.
+  junkRA = velRA/DEGPRAD;
+  junkDec = velDec/DEGPRAD;
+  precess01aLD(junkRA,junkDec,detmjd,&velRA,&velDec,precesscon);
+  velRA*=DEGPRAD;
+  velDec*=DEGPRAD;
+  celestial_to_statevecLD(velRA,velDec,cvel,vel_from_geocen);
+  // cvel is the Earth's rotation velocity at the latitude of
+  // the observer, in km/sec.
+
+  planetposvel01LD(detmjd,polyorder,posmjd,planetpos,planetvel,geocen_from_barycen,vel_from_barycen);
+
+  outpos.x = geocen_from_barycen.x + obs_from_geocen.x;
+  outpos.y = geocen_from_barycen.y + obs_from_geocen.y;
+  outpos.z = geocen_from_barycen.z + obs_from_geocen.z;
+  outvel.x = vel_from_barycen.x + vel_from_geocen.x;
+  outvel.y = vel_from_barycen.y + vel_from_geocen.y;
+  outvel.z = vel_from_barycen.z + vel_from_geocen.z;
+ 
+  //cout << "spinvel: " << vel_from_geocen.x << " " << vel_from_geocen.y << " " << vel_from_geocen.z << "\n";
+  //cout << "orbvel: " << vel_from_barycen.x << " " << vel_from_barycen.y << " " << vel_from_barycen.z << "\n";
+  //cout << "total: " << outvel.x << " " << outvel.y << " " << outvel.z << "\n";
+  return(0);
+}
+
 // observer_baryvel01: April 19, 2023:
 // Like overloaded fuction just above, but takes as input a
 // single vector of type EarthState, rather than three separate
@@ -9346,17 +9429,13 @@ int linfit01(const vector <double> &x, const vector <double> &y, const vector <d
 // yvec (length pnum) as a linear combination of fitnum other
 // vectors supplied in the matrix xmat (size fitnum x pnum). The
 // vector of best-fit coefficients for xmat is given in avec.
-// NOTE: there is an weighted-fit function of the same name, which
-// allocates arrays ahead of time instead of using vector push_back,
-// as here. I think the current function and its sisters below is
-// probably better in C++.
 int multilinfit01(const vector <double> &yvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec, int verbose)
 {
   double fitpar=0l;
   vector <double> fitvec;
   vector <vector <double>> fitmat;
   int pct,fitct,k,status;
-  
+
   // Load fitmat for input into solvematrix01
   for(fitct=0;fitct<fitnum;fitct++)
     {
@@ -9378,6 +9457,31 @@ int multilinfit01(const vector <double> &yvec, const vector <vector <double>> &x
   status=solvematrix01(fitmat,fitnum,avec,verbose);
   return(status);
 }
+
+// polyfit01: April 30, 2025
+// Finds the unweighted least-squares fit modeling the input vector
+// yvec (length pnum) as a polynomial of order polyorder in the
+// input vector xvec (length pnum), and outputs the coefficients
+// in order from constant to highest-order in the vector avec.
+int polyfit01(const vector <double> &yvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec)
+{
+  vector <vector <double>> xmat;
+  int pct,fitct,verbose;
+  pct = fitct = verbose = 0;
+  avec = {};
+  make_dvec(polyorder+1,avec);
+  make_dmat(polyorder+1,pnum,xmat);
+  
+  for(pct=0; pct<pnum; pct++) {
+    xmat[0][pct] = 1.0;
+    for(fitct=1; fitct<=polyorder; fitct++) {
+      xmat[fitct][pct] = intpowD(xvec[pct],fitct);
+    }
+  }
+  multilinfit01(yvec, xmat, pnum, polyorder+1, avec, verbose);
+  return(0);
+}
+
 
 // multilinfit02: June 10, 2022, translated from C on Jan 03, 2023
 // Finds the WEIGHTED least-squares fit modeling the input vector
@@ -9417,6 +9521,31 @@ int multilinfit02(const vector <double> &yvec, const vector <double> &sigvec, co
 
   return(0);
 }
+
+// polyfit02: April 30, 2025
+// Finds the WEIGHTED least-squares fit modeling the input vector
+// yvec (length pnum) as a polynomial of order polyorder in the
+// input vector xvec (length pnum), and outputs the coefficients
+// in order from constant to highest-order in the vector avec.
+int polyfit02(const vector <double> &yvec, const vector <double> &sigvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec)
+{
+  vector <vector <double>> xmat;
+  int pct,fitct,verbose;
+  pct = fitct = verbose = 0;
+  avec = {};
+  make_dvec(polyorder+1,avec);
+  make_dmat(polyorder+1,pnum,xmat);
+  
+  for(pct=0; pct<pnum; pct++) {
+    xmat[0][pct] = 1.0;
+    for(fitct=1; fitct<=polyorder; fitct++) {
+      xmat[fitct][pct] = intpowD(xvec[pct],fitct);
+    }
+  }
+  multilinfit02(yvec, sigvec, xmat, pnum, polyorder+1, avec, verbose);
+  return(0);
+}
+
 
 // multilinfit02b: January 20, 2023, supposed to be a faster version
 // of multilinfit02, because it does not re-calculate redundant
@@ -12663,73 +12792,6 @@ double gaussian_deviate_mt(mt19937_64 &generator)
   } while(rsq>=1.0L || rsq<=0.0L);
   g1 = sqrt(-2.0l*log(rsq)/rsq);
   return(x*g1);
-}
-
-// multilinfit01: June 24, 2022
-// Finds the WEIGHTED least-squares fit modeling the input vector
-// yvec (length pnum) as a linear combination of fitnum other
-// vectors supplied in the matrix xmat (size fitnum x pnum). The
-// vector of best-fit coefficients for xmat is given in avec.
-// NOTE: there is an unweighted fit function of the same name,
-// the first of a family that includes weighted-fit functions
-// multilinfit02() and multilinfit02b(), all of which use
-// vector push_back instead of allocating arrays ahead of time,
-// as here. I think the others are probably faster in C++.
-// Hence, I believe the current function should be DEPRECATED.
-int multilinfit01(const vector <double> &yvec, const vector <double> &sigvec, const vector <vector <double>> &xmat, int pnum, int fitnum, vector <double> &avec)
-{
-  vector <vector <double>> fitmat;
-  int pct,fitct,k;
-  int verbose=0;
-  fflush(stdout);
-
-  make_dmat(fitnum,fitnum+1,fitmat);
-  avec={};
-  make_dvec(fitnum,avec);
-  
-  // Load fitmat for input into solvematrix01
-  for(fitct=0;fitct<fitnum;fitct++) {
-    // First the constant term -- that is, the term that does not
-    // multiply any of the fitting coefficients -- which is also
-    // the only term that involves yvec
-    fitmat[fitct][0]=0.0;
-    for(pct=0;pct<pnum;pct++) {
-      if(isnormal(sigvec[pct])) fitmat[fitct][0] -= yvec[pct]*xmat[fitct][pct]/DSQUARE(sigvec[pct]);
-    }
-    /*Now the actual coefficients*/
-    for(k=0;k<fitnum;k++) {
-      fitmat[fitct][k+1] = 0.0;
-      for(pct=0;pct<pnum;pct++) {
-	if(isnormal(sigvec[pct])) fitmat[fitct][k+1] += xmat[fitct][pct]*xmat[k][pct]/DSQUARE(sigvec[pct]);
-      }
-    }
-  }
-  solvematrix01(fitmat,fitnum,avec,verbose);
-  return(0);
-}
-
-// polyfit01: June 24, 2022:
-// Finds the WEIGHTED least-squares fit modeling the input vector
-// yvec (length pnum) as a polynomial of order polyorder in the
-// input vector xvec (length pnum), and outputs the coefficients
-// in order from constant to highest-order in the vector avec.
-// vectors supplied in the matrix xmat (size fitnum x pnum). The
-// vector of best-fit coefficients for xmat is given in avec.*/
-int polyfit01(const vector <double> &yvec, const vector <double> &sigvec, const vector <double> &xvec, int pnum, int polyorder, vector <double> &avec)
-{
-  vector <vector <double>> xmat;
-  int pct,fitct;
-  avec = {};
-  make_dmat(polyorder+1,pnum,xmat);
-  
-  for(pct=0; pct<pnum; pct++) {
-    xmat[0][pct] = 1.0;
-    for(fitct=1; fitct<=polyorder; fitct++) {
-      xmat[fitct][pct] = intpowD(xvec[pct],fitct);
-    }
-  }
-  multilinfit01(yvec, sigvec, xmat, pnum, polyorder+1, avec);
-  return(0);
 }
 
 // vaneproj01LD: Given a unit vector unitbary giving the direction
@@ -21444,7 +21506,7 @@ int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs,
 
 
 //merge_pairs2: March 25, 2024: Note date one year and one day after previous vesion.
-// This one differs in that it seeks to choose, from different ovelapping
+// This one differs in that it seeks to choose, from different overlapping
 // tracklets of the same length, the one with the smallest Great Circle Residual
 // (GCR). By contrast, the previous code would effectively pick from the
 // equal-length tracklets at random (specifically, I believe it would choose
@@ -23881,9 +23943,6 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
 }
 
 
-
-
-
 // make_trailed_tracklets: February 14, 2024: like make_tracklets,
 // but makes use of trail information through the new function
 // find_trailpairs.
@@ -23911,6 +23970,17 @@ int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, 
     cout << "could produce inaccurate final results.\n";
   }
   if(config.verbose) cout << "Verbose output has been requested\n";
+  
+  // Replace any invalid exposure times with the default (or user-supplied constant) value.
+  long exp_resetnum=0;
+  for(i=0;i<long(image_log.size());i++) {
+    if(image_log[i].exptime<=0.0l) {
+      cout << "Correcting exposure time on image " << i << ": " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].obscode << ", exptime was " << image_log[i].exptime << "\n";
+      image_log[i].exptime = config.exptime;
+      exp_resetnum++;
+    }
+  }
+  cout << "In make_trailed_tracklets(), exposure time was corrected for " << exp_resetnum << " out of " << image_log.size() << " images\n";
   
   int status = load_image_indices(image_log, detvec, config.imagetimetol, config.forcerun);
   if(status!=0) {
@@ -23957,6 +24027,169 @@ int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, 
     cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
     return(status);
   } else cout << "merge_pairs finished OK\n";
+  return(0);
+}
+
+// make_trailed_tracklets2: May 14, 2025: like make_trailed_tracklets,
+// but outputs a culled paired detection file like make_tracklets3.
+int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det)
+{
+ 
+  long i=0;
+  std::vector <longpair> pairvec;
+  std::vector <vector <long>> indvecs;
+  
+  // Echo config struct
+  cout << "Configuration parameters for new make_tracklets:\n";
+  cout << "Min. number of tracklet points: " << config.mintrkpts << "\n";
+  cout << "Time-tolerance for matching detections on the same image: " << config.imagetimetol << " days (" << config.imagetimetol*SOLARDAY << " seconds)\n";
+  cout << "Maximum angular velocity: " << config.maxvel << " deg/day\n";
+  cout << "Minimum angular velocity: " << config.minvel << " deg/day\n";
+  cout << "Minimum angular arc: " << config.minarc << " arcsec\n";
+  cout << "Maximum inter-image time interval: " << config.maxtime << " days (" << config.maxtime*1440.0 << " minutes)\n";
+  cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
+  cout << "Image radius: " << config.imagerad << " degrees\n";
+  cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Exposure time: " << config.exptime << " seconds\n";
+  cout << "Scaling from trail length to its uncertainty: " << config.siglenscale << "\n";
+  cout << "Length used to estimate trail PA uncertainty: " << config.sigpascale << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length: " << config.max_netl << "\n";
+  cout << "Offset to be ADDED to observing times to get UTC: " << config.time_offset << " seconds\n";
+  if(config.forcerun) {
+    cout << "forcerun has been invoked: execution will attempt to push through\n";
+    cout << "any errors that are not immediately fatal, including those that\n";
+    cout << "could produce inaccurate final results.\n";
+  }
+  if(config.verbose) cout << "Verbose output has been requested\n";
+
+  // Replace any invalid exposure times with the default (or user-supplied constant) value.
+  long exp_resetnum=0;
+  for(i=0;i<long(image_log.size());i++) {
+    if(image_log[i].exptime<=0.0l) {
+      cout << "Correcting exposure time on image " << i << ": " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].obscode << ", exptime was " << image_log[i].exptime << "\n";
+      image_log[i].exptime = config.exptime;
+      exp_resetnum++;
+    }
+  }
+  cout << "In make_trailed_tracklets2(), exposure time was corrected for " << exp_resetnum << " out of " << image_log.size() << " images\n";
+
+  int status = load_image_indices(image_log, detvec, config.imagetimetol, config.forcerun);
+  if(status!=0) {
+    cerr << "ERROR: failed to load_image_indices from detection vector\n";
+    return(status);
+  }
+
+  // Echo detection vector
+  //for(i=0;i<detvec.size();i++) {
+  //  cout << "det " << i << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << " " << detvec[i].mag  << " " << detvec[i].obscode << " " << detvec[i].image << "\n";
+  //}
+  if(config.verbose) {
+    // Echo image log
+    for(i=0;i<long(image_log.size());i++) {
+      cout << "image " << i << " " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].X << " " << image_log[i].obscode  << " " << image_log[i].startind  << " " << image_log[i].endind << "\n";
+    }
+  }
+
+  if(config.mintrkpts==2) {
+    // Simply output to main pairdets vector:
+    // there will be no need to revise pairdets afterwards.
+    
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    status = find_trailpairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.siglenscale, config.sigpascale, config.verbose);
+
+    if(status!=0) {
+      cerr << "ERROR: find_trailpairs reports failure status " << status << "\n";
+      return(status);
+    }
+
+    // Sanity-check indvecs
+    cout << "make_trailed_tracklets is sanity-checking indvecs\n";
+    long detnum = indvecs.size();
+    long detct=0;
+    for(detct=0; detct<detnum; detct++) {
+      for(i=0; i<long(indvecs[detct].size()); i++) {
+	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	  cerr << "Acceptable range is 0 to " << detnum << "\n";
+	  return(9);
+	}
+      }
+    }
+    cout << "Sanity-check finished\n";
+   
+    status = merge_trailpairs(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
+      return(status);
+    } else cout << "merge_trailpairs finished OK\n";
+  } else {
+    // The minimum number of tracklet points is more than two, so pairdets will
+    // need to be culled after its initial construction, to eliminate detections
+    // that didn't contribute to a tracklet with more than two points. Hence, we
+    // load a temporary version of pairdets, which must be culled afterwards.
+    
+    vector <hldet> pairdets_temp;
+    
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    status = find_trailpairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.siglenscale, config.sigpascale, config.verbose);
+
+    if(status!=0) {
+      cerr << "ERROR: find_trailpairs reports failure status " << status << "\n";
+      return(status);
+    }
+
+    // Sanity-check indvecs
+    cout << "make_trailed_tracklets is sanity-checking indvecs\n";
+    long detnum = indvecs.size();
+    long detct=0;
+    for(detct=0; detct<detnum; detct++) {
+      for(i=0; i<long(indvecs[detct].size()); i++) {
+	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	  cerr << "Acceptable range is 0 to " << detnum << "\n";
+	  return(9);
+	}
+      }
+    }
+    cout << "Sanity-check finished\n";
+   
+    status = merge_trailpairs(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: merge_trailpairs reports failure status " << status << "\n";
+      return(status);
+    } else cout << "merge_trailpairs finished OK\n";
+    // Load culled version of pairdets_temp into the final pairdets vector,
+    // and re-write the indices of the trk2det vector accordingly
+    
+    // Create a vector of -1s, of the same length as pairdets_temp.
+    vector <long> detloaded;
+    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    if(detloaded.size() != pairdets_temp.size()) {
+      cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
+      return(5);
+    }
+    pairdets={};
+    for(i=0; i<long(trk2det.size()); i++) {
+      long thisdet = trk2det[i].i2;
+      if(detloaded[thisdet]==-1) {
+	// This detection has not yet been loaded. Load it now.
+	pairdets.push_back(pairdets_temp[thisdet]);
+	// Re-assign the trk2det index appropriately
+	trk2det[i].i2 = long(pairdets.size()-1);
+	// Mark it as loaded.
+	detloaded[thisdet] = trk2det[i].i2;
+      } else {
+	// This detection has already been loaded to the pairdets vector.
+	// Re-assign the trk2det index appropriately.
+	trk2det[i].i2 = detloaded[thisdet];
+      }
+    }
+  }
+
   return(0);
 }
 
@@ -39822,9 +40055,68 @@ int eigensolve02(const vector <vector <long double>> &A, vector <vector <long do
   return(0);
 }
 
+// anglevec_meanrms: May 29, 2025: Given a vector of angles and a period
+// (e.g., 180.0 or 360.0), handle all relevant complexities
+// about wrapping the angles to an effective range in the
+// half-open interval [0,period), and calculate the RMS scatter.
+int anglevec_meanrms(const vector <double> &angles, double period, double *median, double *mean, double *rms)
+{
+  vector <double> angles2, angdiff, x, y;
+  long i=0;
+  double angmean,dval,diffneg,diff0,diffpos;
+  angmean = dval = diffneg = diff0 = diffpos = 0.0;
 
-  
-  
-  
-  
+  if(period<=0.0) {
+    cerr << "WARNING: anglevecmean called with period = " << period << ", and\n";
+    cerr << "negative or zero values of the period are not allowed\n";
+    return(2);
+  }
 
+  if(angles.size()<=0) {
+    cerr << "ERROR: anglevecmean called with empty vector\n";
+    *mean = 0.0;
+    *rms = -1.0;
+    return(1);
+  } else if(angles.size()==1) {
+    cerr << "WARNING: anglevecmean called with empty vector;\n";
+    cerr << "cannot calculate the RMS\n";
+    *mean = angles[0];
+    *rms = -1.0;
+    return(0);
+  }
+  
+  // Unwrap all angles to lie in the range [0,period)
+  for(i=0;i<long(angles.size());i++) {
+    dval = angles[i];
+    while(dval<0.0) dval+=period;
+    while(dval>=period) dval-=period;
+    angles2.push_back(dval);
+    x.push_back(cos(2.0*M_PI*dval/period));
+    y.push_back(sin(2.0*M_PI*dval/period));
+  }
+  //Find mean x and y positions
+  double xmean = dmean01(x);
+  double ymean = dmean01(y);
+  // Convert to an angle in the range 0-2pi
+  angmean = atan2(ymean,xmean);
+  if(angmean<0.0) angmean += 2.0*M_PI;
+  // Convert to whatever units period is in
+  angmean *= period/(2.0*M_PI);
+  // Load angdiff, paying attention to all possible wrapping cases
+  for(i=0;i<long(angles.size());i++) {
+    // Case with no wrapping
+    diff0 = fabs(angmean-angles2[i]);
+    // Case where angmean is large, and angles2[i] wraps upward past period
+    diffneg = fabs(angmean-period-angles2[i]);
+    // Case where angmean is small, and angles2[i] wraps downward past zero
+    diffpos = fabs(angmean+period-angles2[i]);
+    if(diff0<=diffneg && diff0<=diffpos) dval=angmean-angles2[i];
+    else if(diffneg<diffpos) dval=angmean-period-angles2[i];
+    else dval=angmean+period-angles2[i];
+    angdiff.push_back(dval);
+  }
+  *rms = drms01(angdiff);
+  *median = angmean - dmedian(angdiff);
+  *mean = angmean;
+  return(0);
+}
