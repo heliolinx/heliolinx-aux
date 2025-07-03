@@ -73,7 +73,7 @@
 // be in km and km/sec, relative to the Sun. The RA and Dec must be in decimal degrees.
 static void show_usage()
 {
-  cerr << "Usage: tracklet_arctrace02a -cfg configfile -observations obsfile -obscode obscodefile -repvec representative_statevector_file -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -max_astrom_rms max astrometric RMS (arcsec) -outfile outfile -logfile logfile\n";
+  cerr << "Usage: tracklet_arctrace02a -cfg configfile -observations obsfile -obscode obscodefile -repvec representative_statevector_file -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -max_astrom_rms max astrometric RMS (arcsec) -outfile outfile -logfile logfile -verbose verbosity\n";
 }
 
 int add_tracklet01(const vector <point3LD> &observer_heliopos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <point3LD> &observer_heliopos2, vector <long double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp);
@@ -591,6 +591,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--verbose" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--VERB") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	verbose=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Verbosity keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -781,7 +792,7 @@ int main(int argc, char *argv[])
   cout << "MJD range " << mjdstart << " to " << mjdend << " for ephemeris corresponds to planet file index range from " << planetfile_startpoint << " to " << planetfile_endpoint << "\n";
   
   // Attempt orbit-fit using arctrace02()
-  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
   
   cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromRMS << "\n";
   cout << fixed << setprecision(10) << "Best state vectors at MJD " << planetmjd[refpoint] << " : " << fixed << setprecision(3) << outpos.x << " " << outpos.y << " " << outpos.z << " "  << fixed << setprecision(10) << outvel.x << " " << outvel.y << " " << outvel.z << "\n";
@@ -1128,7 +1139,7 @@ int main(int argc, char *argv[])
       // Perform orbit-fit to augmented input data
       cout << "Launching arctrace03() for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points\n";
       outstream1 << "Launching arctrace03() for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
-      arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+      arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
     
       outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
       if(astromRMS<bestRMS) bestRMS=astromRMS;
@@ -1187,7 +1198,7 @@ int main(int argc, char *argv[])
 	} else {
 	  cout << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points\n";
 	  outstream1 << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points\n";
-	  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos3,obsMJD3,obsRA3,obsDec3,sigastrom3,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+	  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos3,obsMJD3,obsRA3,obsDec3,sigastrom3,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
 	  cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  if(astromRMS<max_astrom_rms) {
@@ -1311,7 +1322,8 @@ int main(int argc, char *argv[])
 	if(trkvec.size()>0) {
 	  // The tracklet was new and non-redundant
 	  cout << "Attempting orbit fit for a potential 3rd tracklet " << matchct << " (" << pairct << "), of " << track_rmsvec.size() << " with " << trkvec.size() << " points.\n";
-	  outstream1 << "Attempting orbit fit for a potential 3rd tracklet " << matchct << " (" << pairct << "), of " << track_rmsvec.size() << " with " << trkvec.size() << " points.\n";	  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+	  outstream1 << "Attempting orbit fit for a potential 3rd tracklet " << matchct << " (" << pairct << "), of " << track_rmsvec.size() << " with " << trkvec.size() << " points.\n";
+	  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
 	  cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  if(astromRMS<max_astrom_rms) {
@@ -1389,7 +1401,7 @@ int main(int argc, char *argv[])
 	      // The tracklet was new and non-redundant
 	      cout << "Attempting orbit fit for beyond-3rd-tracklet candidate " << matchct << " (" << pairct << "), of " << track_rmsvec.size() << " with " << trkvec.size() << " points.\n";
 	      outstream1 << "Attempting orbit fit for beyond-3rd-tracklet candidate " << matchct << " (" << pairct << "), of " << track_rmsvec.size() << " with " << trkvec.size() << " points.\n";
-	      arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+	      arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
 	      cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	      outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	      if(astromRMS<max_astrom_rms) {
@@ -1512,7 +1524,7 @@ int main(int argc, char *argv[])
 
   cout << "Attempting orbit fit to final linkage, augmented with " << tracklets_added << " tracklets totalling " << detections_added.size() << " additional points\n";
   outstream1 << "Attempting orbit fit to final linkage, augmented with " << tracklets_added << " tracklets totalling " << detections_added.size() << " additional points\n";
-  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint);
+  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
   cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromRMS << "\n";
   cout << fixed << setprecision(10) << "Best state vectors at MJD " << planetmjd[refpoint] << " : " << fixed << setprecision(3) << outpos.x << " " << outpos.y << " " << outpos.z << " "  << fixed << setprecision(10) << outvel.x << " " << outvel.y << " " << outvel.z << "\n";
   cout << "State vectors correspond to reference point " << refpoint << " in the input planet files\n";

@@ -18,7 +18,7 @@
 // be in km and km/sec, relative to the Sun. The RA and Dec must be in decimal degrees.
 static void show_usage()
 {
-  cerr << "Usage: arctrace01f -cfg configfile -observations obsfile -kepspan time_span_for_Keplerian_fit(day) -minchi min_chi_change -outfile outfile \n";
+  cerr << "Usage: arctrace01f -cfg configfile -observations obsfile -kepspan time_span_for_Keplerian_fit(day) -minchi min_chi_change -outfile outfile -verbose verbosity\n";
 }
 
 int main(int argc, char *argv[])
@@ -73,6 +73,7 @@ int main(int argc, char *argv[])
   vector <double> bestDec;
   vector <double> bestresid;
   int refpoint = 0;
+  int verbose = 0;
   long double minchichange = 0.001l;
   long double astromrms = 1.0;
   
@@ -252,6 +253,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--verbose" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--VERB") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	verbose=stoi(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Verbosity keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else {
       cerr << "Warning: unrecognized keyword or argument " << argv[i] << "\n";
       i++;
@@ -319,7 +331,7 @@ int main(int argc, char *argv[])
   else cout << "Warning: unknown file read problem\n";
   instream1.close();
 
-  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observerpos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromrms, &refpoint);
+  arctrace02(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observerpos,obsMJD,obsRA,obsDec,sigastrom,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromrms, &refpoint, verbose);
   
   cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromrms << "\n";
   cout << fixed << setprecision(10) << "Best state vectors at MJD " << planetmjd[refpoint] << " : " << fixed << setprecision(3) << outpos.x << " " << outpos.y << " " << outpos.z << " "  << fixed << setprecision(10) << outvel.x << " " << outvel.y << " " << outvel.z << "\n";

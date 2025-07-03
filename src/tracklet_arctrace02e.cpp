@@ -1,3 +1,7 @@
+// tracklet_arctrace02e.cpp: April 03, 2025:
+// Refactored to use new add_tracklet01() function. Not a big
+// change, just making the code simpler and shorter.
+//
 // tracklet_arctrace02d.cpp: March 31, 2025:
 // testing new fitting code, e.g. arctrace03().
 //
@@ -45,6 +49,8 @@ static void show_usage()
 {
   cerr << "Usage: tracklet_arctrace02a -cfg configfile -observations obsfile -obscode obscodefile -repvec representative_statevector_file -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -max_astrom_rms max astrometric RMS (arcsec) -outfile outfile -logfile logfile -verbose verbosity\n";
 }
+
+int add_tracklet01(const vector <point3LD> &observer_heliopos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <point3LD> &observer_heliopos2, vector <long double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp);
 
 int main(int argc, char *argv[])
 {
@@ -114,7 +120,6 @@ int main(int argc, char *argv[])
   long double mjd_statevecs = 0.0l;
   vector <long double> mjd_sv_vec;
   long planetfile_refpoint=0;
-  point3LD tppos = point3LD(0,0,0);
   long double mjdstart = 0;
   long double mjdend = 0;
   long planetfile_startpoint,planetfile_endpoint;
@@ -1062,95 +1067,40 @@ int main(int argc, char *argv[])
     pairct = matching_trkind[matchct];
     trkvec={};
     trkvec = tracklet_lookup(trk2det, pairct);
-    cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";
-    observer_heliopos2 = {};
-    obsMJD2 = {};
-    obsRA2 = obsDec2 = sigastrom2 = {};
-    outdetvec2 = {};
-    obsct=tct=0;
-    cout << "Size checks: " << obsMJD.size() << " "  << obsRA.size() << " "  << obsDec.size() << " "  << sigastrom.size() << " "  << sigastrom.size() << "\n";
-    while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
-      if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	// Next point in the time-ordered set is from the orginal observation vectors
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
-	// We have two points at the same time, but they are not identical
-	// Keep the one from the original vectors
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-	// And also keep the one from the new tracklet
-	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	obsRA2.push_back(detvec[trkvec[tct]].RA);
-	obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	sigastrom2.push_back(1.0);
-	// Load input heliocentric observer position.
-	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	observer_heliopos2.push_back(tppos);
-	outdetvec2.push_back(detvec[trkvec[tct]]);
-	tct++;
-      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
-	// We have two exactly identical points. Keep the one from the original vectors...
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-	// ...and discard the one from the new tracklet
-	tct++;
-      } else if (tct<long(trkvec.size())) {
-	// Next point in the time-ordered set is from the new tracklet
-	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	obsRA2.push_back(detvec[trkvec[tct]].RA);
-	obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	sigastrom2.push_back(1.0);
-	// Load input heliocentric observer position.
-	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	observer_heliopos2.push_back(tppos);
-	outdetvec2.push_back(detvec[trkvec[tct]]);
-	tct++;
-      } else {
-	cerr << "Error: logically excluded case in loading of new vectors\n";
-	return(5);
-      }
+    status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp);
+    if(status!=0) {
+      cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+      return(status);
     }
-    // Perform orbit-fit to augmented input data
-    cout << "Launching arctrace03() for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points\n";
-    outstream1 << "Launching arctrace03() for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
-    arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
+    if(trkvec_temp.size()>0) {
+      cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";  
+      // Perform orbit-fit to augmented input data
+      cout << "Launching arctrace03() for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points\n";
+      outstream1 << "Launching arctrace03() for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
+      arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
     
-    outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
-    if(astromRMS<max_astrom_rms) {
-      // The fit was good
-      matchnum+=1;
-      matching_trkind2.push_back(matching_trkind[matchct]);
-      outstream1 << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
-      if(astromRMS<bestRMS) {
-	if(bestRMS>max_astrom_rms) {
-	  outstream1 << "the first good fit to be identified\n";
+      outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
+      if(astromRMS<max_astrom_rms) {
+	// The fit was good
+	matchnum+=1;
+	matching_trkind2.push_back(matching_trkind[matchct]);
+	outstream1 << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
+	if(astromRMS<bestRMS) {
+	  if(bestRMS>max_astrom_rms) {
+	    outstream1 << "the first good fit to be identified\n";
+	  } else {
+	    outstream1 << "this fit supplants the previous best, which had astroRMS = " << bestRMS << "\n";
+	  }
+	  bestRMS = astromRMS;
+	  bestmatch = matchct;
 	} else {
-	  outstream1 << "this fit supplants the previous best, which had astroRMS = " << bestRMS << "\n";
+	  outstream1 << "however, it does not supplant the previous best, which had astroRMS = " << bestRMS << "\n";
 	}
-	bestRMS = astromRMS;
-	bestmatch = matchct;
-      } else {
-	outstream1 << "however, it does not supplant the previous best, which had astroRMS = " << bestRMS << "\n";
       }
+    } else {
+      cout << "Potential match number " << matchct+1 << " had " << trkvec.size() << " points,\nbut all were redundant with observations already in the input linkage\n";  
     }
   }
-
   cout << "A total of " << matchnum << " tracklets produced plausible astrometric fits\n";
   outstream1 << "A total of " << matchnum << " tracklets produced plausible astrometric fits\n";
   
@@ -1160,72 +1110,12 @@ int main(int argc, char *argv[])
     pairct = matching_trkind[matchct];
     trkvec={};
     trkvec = tracklet_lookup(trk2det, pairct);
-    trkvec_temp={};
-    cout << "Attempting orbit fit for the best match: number " << matchct << ", with " << trkvec.size() << " points\n";
-    observer_heliopos2 = {};
-    obsMJD2 = {};
-    obsRA2 = obsDec2 = sigastrom2 = {};
-    outdetvec2 = {};
-    obsct=tct=0;   
-    while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
-      if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	// Next point in the time-ordered set is from the orginal observation vectors
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
-	// We have two points at the same time, but they are not identical
-	// Keep the one from the original vectors
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-	// And also keep the one from the new tracklet
-	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	obsRA2.push_back(detvec[trkvec[tct]].RA);
-	obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	sigastrom2.push_back(1.0);
-	// Load input heliocentric observer position.
-	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	observer_heliopos2.push_back(tppos);
-	outdetvec2.push_back(detvec[trkvec[tct]]);
-	trkvec_temp.push_back(trkvec[tct]);
-	tct++;
-      } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
-	// We have two exactly identical points. Keep the one from the original vectors...
-	obsMJD2.push_back(obsMJD[obsct]);
-	obsDec2.push_back(obsDec[obsct]);
-	obsRA2.push_back(obsRA[obsct]);
-	sigastrom2.push_back(sigastrom[obsct]);
-	observer_heliopos2.push_back(observer_heliopos[obsct]);
-	outdetvec2.push_back(outdetvec[obsct]);
-	obsct++;
-	// ...and discard the one from the new tracklet
-	tct++;
-      } else if (tct<long(trkvec.size())) {
-	// Next point in the time-ordered set is from the new tracklet
-	obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	obsRA2.push_back(detvec[trkvec[tct]].RA);
-	obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	sigastrom2.push_back(1.0);
-	// Load input heliocentric observer position.
-	tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	observer_heliopos2.push_back(tppos);
-	outdetvec2.push_back(detvec[trkvec[tct]]);
-	trkvec_temp.push_back(trkvec[tct]);
-	tct++;
-      } else {
-	cerr << "Error: logically excluded case in loading of new vectors\n";
-	return(5);
-      }
+    status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp);
+    if(status!=0) {
+      cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+      return(status);
     }
+    cout << "Attempting orbit fit for the best match: number " << matchct << ", with " << trkvec.size() << " points\n";
     if(trkvec_temp.size()>0) {
       tracklets_added++;
       for(tct=0;tct<long(trkvec_temp.size());tct++) {
@@ -1271,69 +1161,12 @@ int main(int argc, char *argv[])
       pairct = matching_trkind[matchct];
       trkvec={};
       trkvec = tracklet_lookup(trk2det, pairct);
-      cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";
-      observer_heliopos2 = {};
-      obsMJD2 = {};
-      obsRA2 = obsDec2 = sigastrom2 = {};
-      outdetvec2 = {};
-      obsct=tct=0;
-      while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
-        if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	  // Next point in the time-ordered set is from the orginal observation vectors
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
-	  // We have two points at the same time, but they are not identical
-	  // Keep the one from the original vectors
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	  // And also keep the one from the new tracklet
-	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	  obsRA2.push_back(detvec[trkvec[tct]].RA);
-	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	  sigastrom2.push_back(1.0);
-	  // Load input heliocentric observer position.
-	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	  observer_heliopos2.push_back(tppos);
-	  outdetvec2.push_back(detvec[trkvec[tct]]);
-	  tct++;
-	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
-	  // We have two exactly identical points. Keep the one from the original vectors...
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	  // ...and discard the one from the new tracklet
-	  tct++;
-	} else if (tct<long(trkvec.size())) {
-	  // Next point in the time-ordered set is from the new tracklet
-	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	  obsRA2.push_back(detvec[trkvec[tct]].RA);
-	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	  sigastrom2.push_back(1.0);
-	  // Load input heliocentric observer position.
-	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	  observer_heliopos2.push_back(tppos);
-	  outdetvec2.push_back(detvec[trkvec[tct]]);
-	  tct++;
-	} else {
-	  cerr << "Error: logically excluded case in loading of new vectors\n";
-	  return(5);
-	}
+      status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp);
+      if(status!=0) {
+	cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+	return(status);
       }
+      cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";
       // Perform orbit-fit to augmented input data
       cout << "Launching arctrace03() for new-iteration match " << matchct+1 << " of " << matching_trkind.size() << ", with " << obsMJD2.size() << " data points\n";
       outstream1 << "Launching arctrace03() for new-iteration match " << matchct+1 << " = " << detvec[trkvec[0]].idstring  << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
@@ -1364,72 +1197,12 @@ int main(int argc, char *argv[])
       pairct = matching_trkind[matchct];
       trkvec={};
       trkvec = tracklet_lookup(trk2det, pairct);
-      trkvec_temp={};
-      cout << "Attempting orbit fit for potential match number " << matchct << ", with " << trkvec.size() << " points\n";
-      observer_heliopos2 = {};
-      obsMJD2 = {};
-      obsRA2 = obsDec2 = sigastrom2 = {};
-      outdetvec2 = {};
-      obsct=tct=0;
-      while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
-        if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
-	  // Next point in the time-ordered set is from the orginal observation vectors
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
-	  // We have two points at the same time, but they are not identical
-	  // Keep the one from the original vectors
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	  // And also keep the one from the new tracklet
-	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	  obsRA2.push_back(detvec[trkvec[tct]].RA);
-	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	  sigastrom2.push_back(1.0);
-	  // Load input heliocentric observer position.
-	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	  observer_heliopos2.push_back(tppos);
-	  outdetvec2.push_back(detvec[trkvec[tct]]);
-	  trkvec_temp.push_back(trkvec[tct]);
-	  tct++;
-	} else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
-	  // We have two exactly identical points. Keep the one from the original vectors...
-	  obsMJD2.push_back(obsMJD[obsct]);
-	  obsDec2.push_back(obsDec[obsct]);
-	  obsRA2.push_back(obsRA[obsct]);
-	  sigastrom2.push_back(sigastrom[obsct]);
-	  observer_heliopos2.push_back(observer_heliopos[obsct]);
-	  outdetvec2.push_back(outdetvec[obsct]);
-	  obsct++;
-	  // ...and discard the one from the new tracklet
-	  tct++;
-	} else if (tct<long(trkvec.size())) {
-	  // Next point in the time-ordered set is from the new tracklet
-	  obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
-	  obsRA2.push_back(detvec[trkvec[tct]].RA);
-	  obsDec2.push_back(detvec[trkvec[tct]].Dec);
-	  sigastrom2.push_back(1.0);
-	  // Load input heliocentric observer position.
-	  tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
-	  observer_heliopos2.push_back(tppos);
-	  outdetvec2.push_back(detvec[trkvec[tct]]);
-	  trkvec_temp.push_back(trkvec[tct]);
-	  tct++;
-	} else {
-	  cerr << "Error: logically excluded case in loading of new vectors\n";
-	  return(5);
-	}
+      status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp);
+      if(status!=0) {
+	cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+	return(status);
       }
+      cout << "Attempting orbit fit for potential match number " << matchct << ", with " << trkvec.size() << " points\n";
       if(trkvec_temp.size()>0) {
 	tracklets_added++;
 	for(tct=0;tct<long(trkvec_temp.size());tct++) {
@@ -1507,3 +1280,82 @@ int main(int argc, char *argv[])
 
   return(0);
 }
+
+int add_tracklet01(const vector <point3LD> &observer_heliopos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <point3LD> &observer_heliopos2, vector <long double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp)
+{
+  long obsnum,obsct,tct;
+  point3LD tppos = point3LD(0,0,0);
+  
+  obsnum = obsMJD.size();
+  if(obsnum != long(observer_heliopos.size()) || obsnum != long(obsRA.size()) || obsnum != long(obsDec.size()) || obsnum != long(sigastrom.size()) || obsnum != long(outdetvec.size())) {
+    cerr << "ERROR: add_tracklet01 finds length mismatch in input observation vectors: " << obsnum << " " << observer_heliopos.size() << " " << obsRA.size() << " " << obsDec.size() << " " << sigastrom.size() << " " << outdetvec.size() << "\n";
+    return(1);
+  }
+  obsct=tct=0;
+  trkvec_temp={};
+  observer_heliopos2 = {};
+  obsMJD2 = {};
+  obsRA2 = obsDec2 = sigastrom2 = {};
+  outdetvec2 = {};
+  while(obsct<long(obsMJD.size()) || tct<long(trkvec.size())) {
+    if(obsct<long(obsMJD.size()) && (tct>=long(trkvec.size()) || obsMJD[obsct] < image_log[detvec[trkvec[tct]].image].MJD)) {
+      // Next point in the time-ordered set is from the orginal observation vectors
+      obsMJD2.push_back(obsMJD[obsct]);
+      obsDec2.push_back(obsDec[obsct]);
+      obsRA2.push_back(obsRA[obsct]);
+      sigastrom2.push_back(sigastrom[obsct]);
+      observer_heliopos2.push_back(observer_heliopos[obsct]);
+      outdetvec2.push_back(outdetvec[obsct]);
+      obsct++;
+    } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && (obsRA[obsct] != detvec[trkvec[tct]].RA || obsDec[obsct] != detvec[trkvec[tct]].Dec)) {
+      // We have two points at the same time, but they are not identical
+      // Keep the one from the original vectors
+      obsMJD2.push_back(obsMJD[obsct]);
+      obsDec2.push_back(obsDec[obsct]);
+      obsRA2.push_back(obsRA[obsct]);
+      sigastrom2.push_back(sigastrom[obsct]);
+      observer_heliopos2.push_back(observer_heliopos[obsct]);
+      outdetvec2.push_back(outdetvec[obsct]);
+      obsct++;
+      // And also keep the one from the new tracklet
+      obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+      obsRA2.push_back(detvec[trkvec[tct]].RA);
+      obsDec2.push_back(detvec[trkvec[tct]].Dec);
+      sigastrom2.push_back(1.0);
+      // Load input heliocentric observer position.
+      tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
+      observer_heliopos2.push_back(tppos);
+      outdetvec2.push_back(detvec[trkvec[tct]]);
+      trkvec_temp.push_back(trkvec[tct]);
+      tct++;
+    } else if(obsct<long(obsMJD.size()) && tct<long(trkvec.size()) && obsMJD[obsct] == image_log[detvec[trkvec[tct]].image].MJD && obsRA[obsct] == detvec[trkvec[tct]].RA && obsDec[obsct] == detvec[trkvec[tct]].Dec ) {
+      // We have two exactly identical points. Keep the one from the original vectors...
+      obsMJD2.push_back(obsMJD[obsct]);
+      obsDec2.push_back(obsDec[obsct]);
+      obsRA2.push_back(obsRA[obsct]);
+      sigastrom2.push_back(sigastrom[obsct]);
+      observer_heliopos2.push_back(observer_heliopos[obsct]);
+      outdetvec2.push_back(outdetvec[obsct]);
+      obsct++;
+      // ...and discard the one from the new tracklet
+      tct++;
+    } else if (tct<long(trkvec.size())) {
+      // Next point in the time-ordered set is from the new tracklet
+      obsMJD2.push_back(image_log[detvec[trkvec[tct]].image].MJD);
+      obsRA2.push_back(detvec[trkvec[tct]].RA);
+      obsDec2.push_back(detvec[trkvec[tct]].Dec);
+      sigastrom2.push_back(1.0);
+      // Load input heliocentric observer position.
+      tppos = point3LD(image_log[detvec[trkvec[tct]].image].X, image_log[detvec[trkvec[tct]].image].Y, image_log[detvec[trkvec[tct]].image].Z);
+      observer_heliopos2.push_back(tppos);
+      outdetvec2.push_back(detvec[trkvec[tct]]);
+      trkvec_temp.push_back(trkvec[tct]);
+      tct++;
+    } else {
+      cerr << "Error: logically excluded case in loading of new vectors\n";
+      return(5);
+    }
+  }
+  return(0);
+}
+    

@@ -122,10 +122,6 @@ int main(int argc, char *argv[])
   vector <point3LD> orbit05pos;
   vector <point3LD> orbit05vel;
   vector <long double> orbit05MJD;
-  long double RA1,Dec1,RAvel,Decvel;
-  RA1 = Dec1 = RAvel = Decvel = 0;
-  double bestephRA,bestephDec,bestephRAvel,bestephDecvel;
-  bestephRA = bestephDec = bestephRAvel = bestephDecvel = 0;
   vector <long double> startstate;
   vector <long double> tempstate;
   vector <long double> beststate;
@@ -559,10 +555,6 @@ int main(int argc, char *argv[])
 	bestRA = fitRA;
 	bestDec = fitDec;
 	bestresid = resid;
-	bestephRA = RA1;
-	bestephDec = Dec1;
-	bestephRAvel = RAvel;
-	bestephDecvel = Decvel;
 	ldval = 0.0;
 	for(obsct=0;obsct<obsnum;obsct++) ldval += bestresid[obsct]*bestresid[obsct];
 	astromrms = sqrt(ldval/double(obsnum));

@@ -38159,7 +38159,7 @@ long double orb1Dmin01a(long double oldchi, long double inputstep, long double p
     }
     if(newchi>oldchi) {
       // Bracketing failed
-      cout << "Braketing failed in orb1Dmin01a\n";
+      cout << "Bracketing failed in orb1Dmin01a\n";
       return(-1.0l);
     } else {
       // Bracketing succeeded. Store the middle point.
@@ -38337,7 +38337,6 @@ long double orb1Dmin01b(long double oldchi, long double inputstep, long double p
     }
     if(newchi>oldchi) {
       // Bracketing failed
-      cout << "Braketing failed in orb1Dmin01a\n";
       return(-1.0l);
     } else {
       // Bracketing succeeded. Store the middle point.
@@ -38512,7 +38511,6 @@ double orb1Dmin01_Kep(double oldchi, double inputstep, double pvtimescale, doubl
     }
     if(newchi>oldchi) {
       // Bracketing failed
-      cout << "Braketing failed in orb1Dmin01a\n";
       return(-1.0l);
     } else {
       // Bracketing succeeded. Store the middle point.
@@ -39033,7 +39031,7 @@ int arctrace01(int polyorder, int planetnum, const vector <long double> &planetm
 // arc6D01: February 08, 2025:
 // Implements the full 6-D fit with planetary perturbations, used in
 // arctrace01(), as a standalone function.
-int arc6D01(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observer_barypos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, long double minchichange, int planetfile_refpoint, const point3LD initpos, const point3LD initvel, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms)
+int arc6D01(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observer_barypos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, long double minchichange, int planetfile_refpoint, const point3LD initpos, const point3LD initvel, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int verbose)
 {
   vector <long double> unitdir;
   vector <double> fitRA;
@@ -39078,7 +39076,6 @@ int arc6D01(int polyorder, int planetnum, const vector <long double> &planetmjd,
   long double chisq=0.0l;
   long double newchi=0.0l;
   long double bestchi=0.0l;
-  int verbose=0;
   
   fitDec = fitRA = fitresid = {};
   chisq = tortoisechi03(polyorder,planetnum,planetmjd,planetmasses,planetpos,observer_barypos,obsMJD,obsRA,obsDec,sigastrom,startpos,startvel,planetfile_refpoint,fitRA,fitDec,fitresid);
@@ -39494,7 +39491,7 @@ int arc6DKep(const vector <point3d> &observer_heliopos, const vector <double> &o
 // Implement the two-stage orbit fitting from arctrace01d.cpp in a single function.
 // The two stages are, first, a Keplerian fit to a subset of the data, and then
 // a full 6-D fit with planetary perturbations, to the whole data set.
-int arctrace02(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double kepspan, long double minchichange, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int *refpoint)
+int arctrace02(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double kepspan, long double minchichange, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int *refpoint, int verbose)
 {
   vector <point3d> Kepobserverpos;
   vector <double> KepMJD;
@@ -39507,10 +39504,10 @@ int arctrace02(int polyorder, int planetnum, const vector <long double> &planetm
   double simplex_scale = SIMPLEX_SCALEFAC;
   int obsnum = obsMJD.size();
   int i,j,status;
-  int bestpoint,point1,verbose;
+  int bestpoint,point1;
   int simptype,point2,kepnum,kepmax;
   i=j=status=0;
-  bestpoint=point1=verbose=0;
+  bestpoint=point1=0;
   simptype=point2=kepnum=kepmax=1;
   double kepmetric,kepmetbest;
   kepmetric=kepmetbest=1.0;
@@ -39597,7 +39594,7 @@ int arctrace02(int polyorder, int planetnum, const vector <long double> &planetm
     tppos = point3LD(observerpos[i].x + outpos.x, observerpos[i].y + outpos.y, observerpos[i].z + outpos.z);
     observer_barypos.push_back(tppos);
   }
-  arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos,obsMJD,obsRA,obsDec,sigastrom,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,newpos,newvel,chisquared,astromrms);
+  arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos,obsMJD,obsRA,obsDec,sigastrom,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,newpos,newvel,chisquared,astromrms,verbose);
   
   *refpoint = planetfile_refpoint;
   
@@ -39608,7 +39605,7 @@ int arctrace02(int polyorder, int planetnum, const vector <long double> &planetm
 // arctrace03: March 31, 2025:
 // Like arctrace02, but does a Keplerian 2-body fit to the
 // entire data set prior to the full n-body fit. 
-int arctrace03(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observer_heliopos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double kepspan, long double minchichange, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int *refpoint)
+int arctrace03(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &Sunpos, const vector <point3LD> &Sunvel, const vector <point3LD> &observer_heliopos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double kepspan, long double minchichange, vector <double> &bestRA, vector <double> &bestDec, vector <double> &bestresid, point3LD &newpos, point3LD &newvel, long double *chisquared, long double *astromrms, int *refpoint, int verbose)
 {
   vector <point3d> Kepobserverpos;
   vector <double> KepMJD;
@@ -39621,10 +39618,10 @@ int arctrace03(int polyorder, int planetnum, const vector <long double> &planetm
   double simplex_scale = SIMPLEX_SCALEFAC;
   int obsnum = obsMJD.size();
   int i,j,status;
-  int bestpoint,point1,verbose;
+  int bestpoint,point1;
   int simptype,point2,kepnum,kepmax;
   i=j=status=0;
-  bestpoint=point1=verbose=0;
+  bestpoint=point1=0;
   simptype=point2=kepnum=kepmax=1;
   double kepmetric,kepmetbest;
   kepmetric=kepmetbest=1.0;
@@ -39724,7 +39721,7 @@ int arctrace03(int polyorder, int planetnum, const vector <long double> &planetm
     tppos = point3LD(observer_heliopos[i].x + outpos.x, observer_heliopos[i].y + outpos.y, observer_heliopos[i].z + outpos.z);
     observer_barypos.push_back(tppos);
   }
-  arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos,obsMJD,obsRA,obsDec,sigastrom,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,newpos,newvel,chisquared,astromrms);
+  arc6D01(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_barypos,obsMJD,obsRA,obsDec,sigastrom,minchichange,planetfile_refpoint,startpos,startvel,bestRA,bestDec,bestresid,newpos,newvel,chisquared,astromrms,verbose);
   
   *refpoint = planetfile_refpoint;
   
