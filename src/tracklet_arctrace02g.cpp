@@ -1141,9 +1141,9 @@ int main(int argc, char *argv[])
       int isdup=0;
       for(j=0;j<long(matching_trkind.size());j++) {
 	pairct = matching_trkind[j];
-	trkvec={};
-	trkvec = tracklet_lookup(trk2det, pairct);
-	status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec2, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec3, trkvec_temp);
+	trkvec2={};
+	trkvec2 = tracklet_lookup(trk2det, pairct);
+	status = add_tracklet01(observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec2, detvec, image_log, observer_heliopos3, obsMJD3, obsRA3, obsDec3, sigastrom3, outdetvec3, trkvec_temp);
 	if(status!=0) {
 	  cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
 	  return(status);
