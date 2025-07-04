@@ -39660,7 +39660,7 @@ int arctrace03(int polyorder, int planetnum, const vector <long double> &planetm
     }
   }
   kepnum=kepmax;
-  cout << "Best sequence contains " << kepnum << " points, and runs from obsMJD[" << bestpoint << "]=" << obsMJD[bestpoint] << " to obsMJD[" << bestpoint+kepnum-1 << "]=" << obsMJD[bestpoint+kepnum-1] << "\n";
+  cout << "Keplerian-fit sub-sequence contains " << kepnum << " points, and runs from obsMJD[" << bestpoint << "]=" << obsMJD[bestpoint] << " to obsMJD[" << bestpoint+kepnum-1 << "]=" << obsMJD[bestpoint+kepnum-1] << "\n";
   KepMJD = KepRA = KepDec = Kepsig = {};
   Kepobserverpos = {};
   for(i=bestpoint;i<bestpoint+kepnum;i++) {
@@ -39671,13 +39671,13 @@ int arctrace03(int polyorder, int planetnum, const vector <long double> &planetm
     KepDec.push_back(obsDec[i]);
     Kepsig.push_back(sigastrom[i]);
   }
-  cout << "kepnum = " << kepnum << " " << KepMJD.size() << "\n";
+  if(verbose>0) cout << "kepnum = " << kepnum << " " << KepMJD.size() << "\n";
   //for(i=0;i<kepnum;i++) {
   //  cout << Kepobserverpos[i].x << " " << Kepobserverpos[i].y << " " << Kepobserverpos[i].z << " " << KepMJD[i] << " " << KepRA[i] << " " << KepDec[i] << "\n";
   //}
   fitDec = fitRA = fitresid = orbit = {};
   chisq = Hergetfit_vstar(geodist1, geodist2, simplex_scale, simptype, ftol, 1, kepnum, Kepobserverpos, KepMJD, KepRA, KepDec, Kepsig, fitRA, fitDec, fitresid, orbit, verbose);
-  cout << "Keplerian fit produced chisq = " << chisq << "\n";
+  if(verbose>0) cout << "Keplerian fit produced chisq = " << chisq << "\n";
 
   planetfile_refpoint = -99;
   j=0;

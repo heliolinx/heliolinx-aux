@@ -1091,7 +1091,7 @@ int main(int argc, char *argv[])
       if(matchinput==0) {
 	// We matched a tracklet that was not included in the input linkage.
 	// Report it to the user, and record it for inclusion in the orbit fit
-	cout << fixed << setprecision(4) << "Match found for on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
+	cout << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
 	cout << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
 	outstream1 << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
 	outstream1 << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
@@ -1119,9 +1119,57 @@ int main(int argc, char *argv[])
     }
   }
   
-  cout << matching_trkind.size() << " potentially matching tracklets were found\n";
-  outstream1 << matching_trkind.size() << " potentially matching tracklets were found\n";
-  
+  cout << matching_trkind.size() << " potentially matching tracklets were found after first-round deduplication\n";
+  outstream1 << matching_trkind.size() << " potentially matching tracklets were found after first-round deduplication\n";
+
+  // Perform second round of deduplication
+  matching_trkind2 = matching_trkind;
+  matching_trkind = {};
+  i=0;
+  for(i=0;i<long(matching_trkind2.size());i++) {
+    // Try adding tracklet i to the current linkage
+    pairct = matching_trkind2[i];
+    trkvec={};
+    trkvec = tracklet_lookup(trk2det, pairct);
+    status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp);
+    if(status!=0) {
+      cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+      return(status);
+    }
+    if(trkvec_temp.size()>0) {
+      // See if tracklet i is redundant with any already-loaded tracklets.
+      int isdup=0;
+      for(j=0;j<long(matching_trkind.size());j++) {
+	pairct = matching_trkind[j];
+	trkvec={};
+	trkvec = tracklet_lookup(trk2det, pairct);
+	status = add_tracklet01(observer_heliopos, obsMJD, obsRA, obsDec, sigastrom, outdetvec2, trkvec, detvec, image_log, observer_heliopos2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec3, trkvec_temp);
+	if(status!=0) {
+	  cerr << "ERROR: add_tracklet01 returned status " << status << "\n";
+	  return(status);
+	}
+	if(trkvec_temp.size()<=0) {
+	  // matching_trkind2[i] must be redundant with matching_trkind[j], and should not be added
+	  isdup=1;
+	  cout << "Potentially matching tracklet " << i << " = " << matching_trkind2[i] << " was redundant with previously loaded tracklet " << j << " = " << matching_trkind[j] << "\n";
+	}
+      }
+      if(isdup==0) {
+	// matching_trkind2[i] is apparently not a duplicate of any previously-loaded tracklet.
+	// Add it to matching_trkind.
+	matching_trkind.push_back(matching_trkind2[i]);
+	cout << "Tracklet " << i << " = " << matching_trkind2[i] << " has been added to the non-redundant set\n";
+      } else {
+	cout << "Tracklet " << i << " = " << matching_trkind2[i] << " has been rejected due to redundancy\n";
+      }
+    } else {
+      cout << "Potentially matching tracklet " << i << " = " << matching_trkind2[i] << " was entirely redundant with observations already in the input linkage\n";
+    }
+  }
+
+  cout << matching_trkind.size() << " potentially matching tracklets were found after second-round deduplication\n";
+  outstream1 << matching_trkind.size() << " potentially matching tracklets were found after second-round deduplication\n";
+
   long matchct=0;
   long matchnum=0;
   track_rmsvec = {};
@@ -1196,8 +1244,8 @@ int main(int argc, char *argv[])
 	  cout << "Tracklets " << twinfitct << " and " << matchct << " are apparently redundant\n";
 	  outstream1 << "Tracklets " << twinfitct << " and " << matchct << " are apparently redundant\n";
 	} else {
-	  cout << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points\n";
-	  outstream1 << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points\n";
+	  cout << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points: total " << obsMJD3.size() << " points\n";
+	  outstream1 << "Attempting orbit fit for tracklet pair " << twinfitct << " (" << pairct << "), with " << trkvec.size() << " points and " << matchct << " (" << pairct2 << "), with " << trkvec2.size() << " points: total " << obsMJD3.size() << " points\n";
 	  arctrace03(polyorder,planetnum,planetmjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos3,obsMJD3,obsRA3,obsDec3,sigastrom3,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
 	  cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
