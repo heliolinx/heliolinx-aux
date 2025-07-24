@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <cstdio>
 #include <cassert>
+#include <climits>
 
 #include <omp.h>
 
@@ -351,6 +352,8 @@ struct MakeTrackletsConfig {
                                 // for tracklets, in days.
   double mintime = 1.0 / SOLARDAY; // Minimum inter-image time interval, in days.
   double imagerad = 2.0;        // radius from image center to most distant corner (deg)
+  double matchrad = 0.03;       // radius to search for corresponding points on other images
+  double trkfrac = 0.25;         // Miniumum tracklet length as a fraction of max. possible.
   double maxgcr = 0.5;          // Default maximum Great Circle Residual allowed for a valid tracklet
   double exptime = 30.0;        // Defulat exposure time in seconds.
   double siglenscale = 0.5;     // Default scaling from trail length to its uncertainty
@@ -597,6 +600,25 @@ public:
 };
 
 
+class shortclust{ // cluster (linkage) type used by low-memory version of heliolinc.
+public:
+  long clusternum;
+  float posRMS;
+  float totRMS;
+  int pairnum;
+  double metric;
+  int hypindex;
+  float posX;
+  float posY;
+  float posZ;
+  float velX;
+  float velY;
+  float velZ;
+  shortclust(long clusternum, float posRMS, float totRMS, int pairnum, double metric, int hypindex, float posX, float posY, float posZ, float velX, float velY,float velZ) :clusternum(clusternum), posRMS(posRMS), totRMS(totRMS), pairnum(pairnum), metric(metric), hypindex(hypindex), posX(posX), posY(posY), posZ(posZ), velX(velX), velY(velY), velZ(velZ) { }
+  shortclust() = default;
+};
+
+
 class xy_index{ // Double-precision x,y point plus long index
 public:
   double x;
@@ -750,6 +772,14 @@ public:
   long i2;
   longpair(long i1, long i2) :i1(i1), i2(i2) { }
   longpair() = default;
+};
+
+class uint_pair{ // Pair of unsigned integers
+public:
+  unsigned int i1;
+  unsigned int i2;
+  uint_pair(unsigned int i1, unsigned int i2) :i1(i1), i2(i2) { }
+  uint_pair() = default;
 };
 
 class point2d{ // Double-precision 2-D point
@@ -1615,6 +1645,7 @@ long medindex(const vector <xy_index> &xyvec, int dim);
 int splitxy(const vector <xy_index> &xyvec, int dim, long unsigned int splitpoint, vector <xy_index> &left, vector <xy_index> &right);
 int kdtree01(const vector <xy_index> &xyvec, int dim, long unsigned int rootptxy, long unsigned int rootptkd, vector <kdpoint> &kdvec);
 int kdrange01(const vector <kdpoint> &kdvec,double x,double y,double range,vector <long> &indexvec);
+long kdnearest01(const vector <kdpoint> &kdvec,double x,double y);
 long medind_3d_index(const vector <point3d_index> &pointvec, int dim);
 int split3d_index(const vector <point3d_index> &pointvec, int dim, long splitpoint, vector <point3d_index> &left, vector <point3d_index> &right);
 int kdtree_3d_index(const vector <point3d_index> &invec, int dim, long splitpoint, long kdroot, vector <KD_point3d_index> &kdvec);
@@ -1703,7 +1734,7 @@ int Keplerint(const long double MGsun, const long double mjdstart, const point3L
 int Keplerint(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
 int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
 int Kepler_fg_func_vec(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const vector <double> &mjdvec, vector <point3d> &outpos, vector <point3d> &outvel);
-int Kepler_univ_int(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
+int Kepler_univ_int(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel, int verbose);
 int Kepler_univ_vec(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const vector <double> &mjdvec, vector <point3d> &outpos, vector <point3d> &outvel);
 int Kepler2dyn(const long double mjdnow, const keplerian_orbit &keporb, point3LD &outpos,  point3LD &outvel);
 int Kepler2dyn(const double mjdnow, const asteroid_orbit &oneorb, point3d &outpos,  point3d &outvel);
@@ -1817,6 +1848,7 @@ int load_image_table(vector <hlimage> &img_log, const vector <hldet> &detvec, do
 int load_image_indices(vector <hlimage> &img_log, vector <hldet> &detvec, double imagetimetol, int forcerun);
 int load_image_indices2(vector <hlimage> &img_log, vector <hldet> &detvec, double imagetimetol, int forcerun);
 int find_pairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, int verbose);
+int find_pairs2(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose);
 int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, double siglenscale, double sigpascale, int verbose);
 int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
 int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
@@ -1827,6 +1859,7 @@ int record_pairs(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <t
 int make_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
+int make_tracklets4(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <hlimage> &image_log,vector <tracklet> &tracklets, vector <longpair> &trk2det, int verbose);
@@ -1835,16 +1868,18 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
 int trk2statevec_fgfuncRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
 int trk2statevec_clusterprobe(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
 int trk2statevec_clusterprobe_innea(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6dx2> &allstatevecs, double mjdref);
-int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
-int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler);
+int trk2statevec_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose);
+int trk2statevec_univarRR(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int NotKepler, int verbose);
 int trk2statevane_fgfunc(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double lambda0, double lambda_dot, double lambda_ddot, double chartimescale, double minsunelong, double maxsunelong, double min_proj_sine, double max_heliodist, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf);
-int trk2statevane_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double lambda0, double lambda_dot, double lambda_ddot, double chartimescale, double minsunelong, double maxsunelong, double min_proj_sine, double maxheliodist, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf);
+int trk2statevane_univar(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double lambda0, double lambda_dot, double lambda_ddot, double chartimescale, double minsunelong, double maxsunelong, double min_proj_sine, double maxheliodist, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar, double max_v_inf, int verbose);
 void lastroot(const vector <double> &intvec, vector <double> &rootvec, long N);
 int trk2statevec_omp(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 int trk2statevec_omp2(const vector <hlimage> &image_log, const vector <tracklet> &tracklets, double heliodist, double heliovel, double helioacc, double chartimescale, vector <point6ix2> &allstatevecs, double mjdref, double mingeoobs, double minimpactpar);
 vector <long> tracklet_lookup(const vector <longpair> &trk2det, long trknum);
+vector <unsigned int> uint_lookup(const vector <uint_pair> &trk2det, unsigned int trknum);
 point3d earthpos01(const vector <EarthState> &earthpos, double mjd);
 int form_clusters(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+int form_clusters_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int form_clusters_kd(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 long intvec_lower(const vector <long> &ivec1, const vector <long> &ivec2);
 long intvec_findplace(const vector <vector <long>> &imat, const vector <long> &ivec, int &dup);
@@ -1852,14 +1887,19 @@ long blend_vector(vector<long> vec);
 int form_clusters_kd2(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int form_clusters_kd3(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int form_clusters_kd4(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+vector <long> uintvec2long(vector <unsigned int> uivec);
+int form_clusters_kd4_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int form_clusters_RR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+int form_clusters_RR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double dbscan_npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int form_clusters_kdR(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, double chartimescale, vector <hlclust> &outclust, vector <longpair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
+int form_clusters_kdR_lowmem(const vector <point6ix2> &allstatevecs, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const point3d &Earthrefpos, double reference_MJD, double heliodist, double heliovel, double helioacc, long hypindex, double chartimescale, vector <shortclust> &outclust, vector <uint_pair> &clust2det, long &realclusternum, double cluster_radius, double clustchangerad, double npt, double mingeodist, double geologstep, double maxgeodist, int mintimespan, int minobsnights, int verbose);
 int heliolinc_alg(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_fgfunc(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_univar(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_danby(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliovane_alg_danby(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &lambdahyp, const vector <EarthState> &earthpos, HeliovaneConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliovane_alg_all(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &lambdahyp, const vector <EarthState> &earthpos, HeliovaneConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
+int heliolinc_alg_lowmem(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_omp(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_omp2(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_omp3(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
@@ -1867,6 +1907,8 @@ int heliolinc_alg_ompdanby(const vector <hlimage> &image_log, const vector <hlde
 int heliolinc_alg_ompkd(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_ompkd3(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int link_dedup(const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, vector <hlclust> &outclust, vector  <longpair> &outclust2det);
+int link_dedup_lowmem(const vector <shortclust> &inclust, const vector  <uint_pair> &inclust2det, vector <shortclust> &outclust, vector  <uint_pair> &outclust2det);
+int link_dedup_lowmem2(const vector <shortclust> &inclust, const vector  <uint_pair> &inclust2det, vector <shortclust> &outclust, vector  <uint_pair> &outclust2det);
 int heliolinc_alg_ompkd4(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_kd(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliolinc_alg_RR(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
@@ -1875,7 +1917,7 @@ int heliolinc_alg_all(const vector <hlimage> &image_log, const vector <hldet> &d
 int heliolinc_omp_all(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &radhyp, const vector <EarthState> &earthpos, HeliolincConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int heliovane_alg_ompdanby(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <tracklet> &tracklets, const vector <longpair> &trk2det, const vector <hlradhyp> &lambdahyp, const vector <EarthState> &earthpos, HeliovaneConfig config, vector <hlclust> &outclust, vector <longpair> &clust2det);
 int link_refine_Herget(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkRefineConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
-int link_refine_Herget_univar(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkRefineConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
+int link_refine_Herget_univar(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkRefineConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det, int verbose);
 int link_dedup2(const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, vector <hlclust> &outclust, vector  <longpair> &outclust2det);
 int planepolefind(const vector <point3d> &invecs, point3d &polevec);
 int link_purify(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkPurifyConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
@@ -1889,6 +1931,7 @@ int link_refine_Herget_omp3(const vector <hlimage> &image_log, const vector <hld
 int link_refine_Herget_omp4(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkRefineConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int parse_clust2det(const vector <hldet> &detvec, const vector <longpair> &inclust2det, vector <hldet> &clustdet);
 int greatcircfit(const vector <hldet> &trackvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack);
+int greatcircresid(const vector <hldet> &trackvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack, vector <double> &fitRA, vector <double> &fitDec, vector <double> &residuals);
 int greatcircfit(const vector <double> &MJDvec, const vector <double> &RAvec, const vector <double> &Decvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack);
 int read_orbline(ifstream &instream1, asteroid_orbit &oneorb);
 int read_orbline(ifstream &instream1, asteroid_orbitLD &oneorb);
