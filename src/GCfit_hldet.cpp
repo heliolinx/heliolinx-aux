@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
   vector <double> fitDec;
   vector <double> residuals;
   
-  status = greatcircresid(detvec,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals);
+  status = greatcircresid(detvec,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
   double GCRnew=0.0;
   for(i=0;i<long(residuals.size());i++) {
     GCRnew += residuals[i]*residuals[i];

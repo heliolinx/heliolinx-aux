@@ -31,6 +31,8 @@ static void show_usage()
   cerr << "Usage: make_tracklets -dets detfile -imgs imfile -outimgs output image file/ \n";
   cerr << "-pairdets paired detection file -tracklets tracklet file -trk2det output tracklet-to-detection file/ \n";
   cerr << "-colformat column format file -imrad image radius(deg)/ \n";
+  cerr << "-matchrad radius for image overlap calculation (deg)/ \n";
+  cerr << "-trkfrac min fraction of overlapping images that must be included in a valid tracklet/ \n";
   cerr << "-maxtime max inter-image time interval (hr) -mintime min inter-image time interval (hr)/ \n";
   cerr << "-maxGCR maximum GRC -mintrkpts min. num. of tracklet points/ \n";
   cerr << "-max_netl maximum number of points for a non-exclusive (overlap permitted) tracklet/ \n";
@@ -480,6 +482,12 @@ int main(int argc, char *argv[])
   if(imagerad_default == 0) cout << "Image radius = " << config.imagerad << " degrees.\n";
   else cout << "Defaulting to image radius = " <<  config.imagerad << " degrees.\n";
   
+  if(matchrad_default == 0) cout << "Matching radius for image overlap calculation = " << config.matchrad << " degrees.\n";
+  else cout << "Defaulting to matching radius = " <<  config.matchrad << " degrees.\n";
+  
+  if(trkfrac_default == 0) cout << "Minimum tracklet length = " << config.trkfrac << " times the number of overlapping images.\n";
+  else cout << "Defaulting to minimum tracklet length = " <<  config.trkfrac << " times the number of overlapping images.\n";
+   
   if(maxtime_default == 0) cout << "Max time interval = " << config.maxtime*24.0 << " hours.\n";
   else cout << "Defaulting to max time interval = " << config.maxtime*24.0 << " hours.\n";
   if(mintime_default ==0) cout << "Min time interval = " << config.mintime*24.0 << " hours.\n";
@@ -651,7 +659,7 @@ int main(int argc, char *argv[])
   long exp_resetnum=0;
   for(i=0;i<long(img_log.size());i++) {
     if(img_log[i].exptime<=0.0l) {
-      cout << "Correcting exposure time on image " << i << ": " << img_log[i].MJD << " " << img_log[i].RA << " " << img_log[i].Dec << " " << img_log[i].obscode << ", exptime was " << img_log[i].exptime << "\n";
+      if(config.verbose>0) cout << "Correcting exposure time on image " << i << ": " << img_log[i].MJD << " " << img_log[i].RA << " " << img_log[i].Dec << " " << img_log[i].obscode << ", exptime was " << img_log[i].exptime << "\n";
       img_log[i].exptime = config.exptime;
       exp_resetnum++;
     }

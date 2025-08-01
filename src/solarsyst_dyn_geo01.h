@@ -1937,7 +1937,7 @@ int link_refine_Herget_omp3(const vector <hlimage> &image_log, const vector <hld
 int link_refine_Herget_omp4(const vector <hlimage> &image_log, const vector <hldet> &detvec, const vector <hlclust> &inclust, const vector  <longpair> &inclust2det, LinkRefineConfig config, vector <hlclust> &outclust, vector <longpair> &outclust2det);
 int parse_clust2det(const vector <hldet> &detvec, const vector <longpair> &inclust2det, vector <hldet> &clustdet);
 int greatcircfit(const vector <hldet> &trackvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack);
-int greatcircresid(const vector <hldet> &trackvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack, vector <double> &fitRA, vector <double> &fitDec, vector <double> &residuals);
+int greatcircresid(const vector <hldet> &trackvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack, vector <double> &fitRA, vector <double> &fitDec, vector <double> &residuals, int verbose);
 int greatcircfit(const vector <double> &MJDvec, const vector <double> &RAvec, const vector <double> &Decvec, double &poleRA, double &poleDec,double &angvel,double &pa,double &crosstrack,double &alongtrack);
 int read_orbline(ifstream &instream1, asteroid_orbit &oneorb);
 int read_orbline(ifstream &instream1, asteroid_orbitLD &oneorb);
