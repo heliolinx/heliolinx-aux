@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cassert>
 #include <climits>
+#include <chrono>
 
 #include <omp.h>
 
@@ -139,6 +140,7 @@ using namespace std;
 #define LN10 2.30258509299405L
 #define IMAGETIMETOL 0.5 // Tolerance for matching image time, in seconds
 #define IMAGETIMETOL_STRICT 0.01
+#define STATEMJD_TIMETOL 1.0e-8 // Tolerance in days for matching input ephemerides to ideal Everhart sampling.
 
 // Begin parameters related to 6-D orbit fitting with the arctrace programs
 #define MINPOS_STEP 1.0e-6l
@@ -176,6 +178,46 @@ using namespace std;
                               // in seconds, are implausible and will cause link_refine_Herget
                               // to exit with an error.
 // End parameters related to heliolinc clustering
+
+// Begin set or parameters related to the Everhart (1974) integrator
+#define h3_1 0.0l
+#define h3_2 0.3550510257l
+#define h3_3 0.8449489743l
+
+#define h4_1 0.0l
+#define h4_2 0.212340538239153l
+#define h4_3 0.590533135559265l
+#define h4_4 0.911412040487296l
+
+#define h5_1 0.0l
+#define h5_2 0.13975986434378055l
+#define h5_3 0.41640956763108318l
+#define h5_4 0.72315698636187617l
+#define h5_5 0.94289580388548232l
+
+#define h6_1 0.0l
+#define h6_2 0.09853508579882642612l
+#define h6_3 0.30453572664636390549l
+#define h6_4 0.56202518975261385599l
+#define h6_5 0.80198658212639182746l
+#define h6_6 0.96019014294853125766l
+
+#define h7_1 0.0l
+#define h7_2 0.07305432868025838515l
+#define h7_3 0.23076613796994549908l
+#define h7_4 0.44132848122844986792l
+#define h7_5 0.66301530971884570090l
+#define h7_6 0.85192140033151570815l
+#define h7_7 0.97086357284021510803l
+
+#define h8_1 0.0l
+#define h8_2 0.0562625605269221464656522l
+#define h8_3 0.1802406917368923649875799l
+#define h8_4 0.3526247171131696373739078l
+#define h8_5 0.5471536263305553830014486l
+#define h8_6 0.7342101772154105315232106l
+#define h8_7 0.8853209468390957680903598l
+#define h8_8 0.9775206135612875018911745l
 
 
 // String-handling stuff that has to be declared early because other things depend on it.
@@ -352,8 +394,8 @@ struct MakeTrackletsConfig {
                                 // for tracklets, in days.
   double mintime = 1.0 / SOLARDAY; // Minimum inter-image time interval, in days.
   double imagerad = 2.0;        // radius from image center to most distant corner (deg)
-  double matchrad = 0.03;       // radius to search for corresponding points on other images
-  double trkfrac = 0.25;         // Miniumum tracklet length as a fraction of max. possible.
+  double matchrad = 0.2;       // radius to search for corresponding points on other images
+  double trkfrac = 0.3;         // Miniumum tracklet length as a fraction of max. possible.
   double maxgcr = 0.5;          // Default maximum Great Circle Residual allowed for a valid tracklet
   double exptime = 30.0;        // Defulat exposure time in seconds.
   double siglenscale = 0.5;     // Default scaling from trail length to its uncertainty
@@ -361,6 +403,7 @@ struct MakeTrackletsConfig {
                                 // PA uncertainty, using sigPA = DEGPRAD*sigpascale/trail_len
   int max_netl = 2;             // maximum non-exclusive tracklet length (all longer tracklets are exclusive).
   double time_offset = 0.0;     // Offset in seconds to be ADDED to observing times to get UTC, e.g., -37.0 for TAI
+  int use_lowmem = 0; // If set to 1, uses a more complex, memory-efficient algorithm with better handling of deep-drilling data
   int forcerun = 0; // Pushes through all but the immediately fatal errors.
   int verbose = 0;  // Prints monitoring output
 };
@@ -742,6 +785,13 @@ class early_hldet{
 public:
   inline bool operator() (const hldet& o1, const hldet& o2) {
     return(o1.MJD < o2.MJD || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==-1) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==0 && o1.RA<o2.RA));
+  }
+};
+
+class imgsort_hldet{
+public:
+  inline bool operator() (const hldet& o1, const hldet& o2) {
+    return(o1.image < o2.image || (o1.image == o2.image && o1.Dec < o2.Dec) || (o1.image == o2.image && o1.Dec == o2.Dec && o1.RA < o2.RA));
   }
 };
 
@@ -1685,6 +1735,7 @@ long point3ix2_dist2(const point3ix2 &p1, const point3ix2 &p2);
 int kdrange_3i01(const vector <KD_point3ix2> &kdvec, const point3ix2 &querypoint, long range, vector <long> &indexvec);
 int KDRclust_3i01(vector <KD_point3ix2> &kdtree, const vector <point6ix2> &allstatevecs, double clustrad, int npt, double intconvscale, vector <KD6i_clust> &outclusters, int verbose);
 int celestial_to_statevec(double RA, double Dec,double delta,point3d &baryvec);
+int celestial_to_statevec2(double RA, double Dec,double delta, vector <double> &baryvec);
 int celestial_to_statevecLD(long double RA, long double Dec,long double delta,point3LD &baryvec);
 int celestial_to_stateunit(double RA, double Dec,point3d &baryvec);
 int celestial_to_stateunitLD(long double RA, long double Dec, point3LD &baryvec);
@@ -1692,10 +1743,14 @@ int celestial_to_cartunit(double RA, double Dec,point3d &cartvec);
 int cart_to_celestial(const point3d &invec, double *RA, double *Dec);
 int get_csv_string01(const string &lnfromfile, string &outstring, int startpoint);
 int get_sv_string01(const string &lnfromfile, string &outstring, int startpoint);
+int get_psv_string01(const string &lnfromfile, string &outstring, int startpoint);
 int read_horizons_file(string infile, vector <double> &mjdvec, vector <point3d> &pos, vector <point3d> &vel);
 int read_horizons_fileLD(string infile, vector <long double> &mjdvec, vector <point3LD> &pos, vector <point3LD> &vel);
+int read_horizons_statevec(string infile, vector <double> &mjdvec, vector <vector <double>> &statevecs);
+int read_horizons_statevecLD(string infile, vector <long double> &mjdvec, vector <vector <long double>> &statevecs);
 int read_horizons_csv(string infile, vector <double> &mjdvec, vector <point3d> &pos, vector <point3d> &vel);
 int read_horizons_csv(string infile, vector <EarthState> &earthpos);
+int read_t6text_statevec(string infile, vector <double> &mjdvec, vector <vector <double>> &statevecs);
 int poleswitch01(const double &inRA, const double &inDec, const double &poleRA, const double &poleDec, const double &oldpoleRA, double &newRA, double &newDec);
 int poleswitch01LD(const long double &inRA, const long double &inDec, const long double &poleRA, const long double &poleDec, const long double &oldpoleRA, long double &newRA, long double &newDec);
 int poleswitch02(const double &inRA, const double &inDec, const double &poleRA, const double &poleDec, const double &oldpoleRA, double &newRA, double &newDec);
@@ -1704,6 +1759,7 @@ int precess01a(double ra1,double dec1,double mjd,double *ra2,double *dec2,int pr
 int precess01aLD(long double ra1,long double dec1,long double mjd,long double *ra2,long double *dec2,int precesscon);
 int solvematrix01(const vector <vector <double>> &inmat, int eqnum, vector <double> &outvec, int verbose);
 int solvematrix01LD(const vector <vector <long double>> &inmat, int eqnum, vector <long double> &outvec, int verbose);
+int invertmatrix01(const vector <vector <double>> &inmat, int N, vector <vector <double>> &outmat, int verbose);
 int perfectpoly01(const vector <double> &x, const vector <double> &y, vector <double> &fitvec);
 int perfectpoly01LD(const vector <long double> &x, const vector <long double> &y, vector <long double> &fitvec);
 int planetpos01(double detmjd, int polyorder, const vector <double> &posmjd, const vector <point3d> &planetpos, point3d &outpos);
@@ -1712,7 +1768,10 @@ int planetpos01LD(long double detmjd, int polyorder, const vector <long double> 
 int planetposvel01(double detmjd, int polyorder, const vector <double> &posmjd, const vector <point3d> &planetpos, const vector <point3d> &planetvel, point3d &outpos, point3d &outvel);
 int planetposvel01(double detmjd, int polyorder, const vector <EarthState> &planetpos, point3d &outpos, point3d &outvel);
 int planetposvel01LD(long double detmjd, int polyorder, const vector <long double> &posmjd, const vector <point3LD> &planetpos, const vector <point3LD> &planetvel, point3LD &outpos, point3LD &outvel);
+int planetpos02LD(long double nowmjd, int polyorder, const vector <long double> &planetmjd, const vector <vector <long double>> &planet_statevecs, vector <long double> &outstatevecs);
+int planetpos02(double nowmjd, int polyorder, const vector <double> &planetmjd, const vector <vector <double>> &planet_statevecs, vector <double> &outstatevecs);
 int nplanetpos01LD(long double detmjd, int planetnum, int polyorder, const vector <long double> &posmjd, const vector <point3LD> &planetpos, vector <point3LD> &outpos);
+int nplanetpos02(double nowmjd, int planetnum, int polyorder, const vector <double> &planetmjd, const vector <vector <double>> &planet_statevecs, vector <double> &outstatevecs);
 int nplanetgrab01LD(int pointrequest, int planetnum, const vector <long double> &posmjd, const vector <point3LD> &planetpos, vector <point3LD> &outpos);
 int observer_barycoords01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <double> &posmjd, const vector <point3d> &planetpos, point3d &outpos);
 int observer_barycoords01LD(long double detmjd, int polyorder, long double lon, long double obscos, long double obssine, const vector <long double> &posmjd, const vector <point3LD> &planetpos, point3LD &outpos);
@@ -1720,6 +1779,7 @@ int observer_baryvel01(double detmjd, int polyorder, double lon, double obscos, 
 int observer_baryvel01LD(long double detmjd, int polyorder, long double lon, long double obscos, long double obssine, const vector <long double> &posmjd, const vector <point3LD> &planetpos, const vector <point3LD> &planetvel, point3LD &outpos, point3LD &outvel);
 int observer_baryvel01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <EarthState> &earthpos, point3d &outpos, point3d &outvel);
 int observer_geocoords01(double detmjd, double lon, double obscos, double obssine, point3d &outpos);
+int observer_barystate01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevec, vector <double> &outstate, int verbose);
 int helioproj01(point3d unitbary, point3d obsbary,double heliodist,double &geodist, point3d &projbary);
 int helioproj01LD(point3LD unitbary, point3LD obsbary, long double heliodist, long double &geodist, point3LD &projbary);
 int helioproj02LD(point3LD unitbary, point3LD obsbary, long double heliodist, vector <long double> &geodist, vector <point3LD> &projbary);
@@ -1774,11 +1834,15 @@ float fmedian(const vector <float> &invec);
 int fmedian_minmax(const vector <float> &invec, float &median, float &min, float &max);
 int stateunit_to_celestial(point3d &baryvec, double &RA, double &Dec);
 int stateunitLD_to_celestial(point3LD &baryvec, long double &RA, long double &Dec);
+int statevec_to_celestial(const vector <double> &baryvec, double &RA, double &Dec);
+int statevec_to_celederiv(const vector <double> &baryvec, double &RA, double &Dec, vector <double> &RA_deriv, vector <double> &Dec_deriv);
 int integrate_orbit03LD(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <long double> &obsMJD, point3LD startpos, point3LD startvel, long double mjdstart, vector <point3LD> &obspos, vector <point3LD> &obsvel);
 long double tortoisechi01(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <long double> &scalestate, long double timescale, long double mjdstart, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid);
 long double tortoisechi02(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const point3LD startpos, const point3LD startvel, long double mjdstart, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid);
 int integrate_orbit04LD(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, point3LD startpos, point3LD startvel, int startpoint, int endpoint, vector <long double> &outMJD, vector <point3LD> &outpos, vector <point3LD> &outvel);
 int integrate_orbit05LD(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, point3LD refpos, point3LD refvel, int startpoint, int refpoint, int endpoint, vector <long double> &outMJD, vector <point3LD> &outpos, vector <point3LD> &outvel);
+int integrate_statevec_LDFW01(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <vector <long double>> &planet_statevecs, const vector <long double> &starting_statevec, int startpoint, int endpoint, vector <long double> &outMJD,  vector <vector <long double>> &targ_statevecs);
+int integrate_statevec02LD(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <vector <long double>> &planet_statevecs, const vector <long double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <long double> &outMJD,  vector <vector <long double>> &targ_statevecs);
 long double tortoisechi03(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <point3LD> &planetpos, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const point3LD startpos, const point3LD startvel, int planetfile_refpoint, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid);
 double gaussian_deviate();
 int uvw_to_galcoord(const double &u, const double &v, const double &w, double &RA, double &Dec);
@@ -1852,9 +1916,14 @@ int find_pairs2(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 int delete_tracklet01(long overtrk, vector <long> &trkdetind, vector <long> &trkindind, vector <hldet> &detvec, vector <longpair> &trk2det, vector <tracklet> &tracklets, vector <hldet> &pairdets, vector <double> &tracklet_metrics, vector <long> &det2trk, vector <long> &tracklets_min_length, vector <vector <long>> &tracklet_indexmat, vector <long> &overlapping_tracklets, int verbose);
 int find_pairs3(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose);
 int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose);
+int delete_trkpts01(vector <hldet> &detvec, vector <hldet> &pairdets, vector <longpair> &trk2det, vector <long> &det2trk, vector <tracklet> &tracklets, const vector <long> &tracklets_min_length, vector <double> &tracklet_metrics, vector <vector <long>> &tracklet_indexmat, double overmetric, const vector <long> &erase_trkdetind, vector <long> &erase_trkindind, long overtrk, long max_netl, vector <hldet> &trimmed_overtrk, long trp1, long trp2, const vector <double> &tfitRA, const vector <double> &tfitDec, int verbose);
+int find_repdets(const vector <hldet> &imdetvec, double RA, double Dec, vector <hldet> &repdetvec, int verbose);
+int calculate_overlap(const vector <hldet> &detvec, const vector <hlimage> &img_log, double mintime, double maxtime, double maxvel, double imrad, double matchrad, vector <int> &image_overlap, int verbose);
+int find_pairs5(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose);
 int find_trailpairs(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <vector <long>> &indvecs, vector <longpair> &pairvec, double mintime, double maxtime, double imrad, double maxvel, double siglenscale, double sigpascale, int verbose);
 int merge_pairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
 int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
+int merge_pairs3(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, const vector <int> image_overlap, double trkfrac, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
 int merge_trailpairs(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, double maxgcr, double minarc, double minvel, double maxvel, int verbose);
 int find_glints_radec(const vector <point3d_index> &detvec, FindGlintsConfig config, vector <glint_trail> &trailvec, vector <longpair> &trail2det);
 int find_glints_xypix(const vector <point3d_index> &detvec, FindGlintsConfig config, vector <glint_trail> &trailvec, vector <longpair> &trail2det);
@@ -1865,6 +1934,9 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
 int make_tracklets4(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_tracklets5(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_tracklets6(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
+int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
+int make_tracklets6c(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
+int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_trailed_tracklets(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int make_trailed_tracklets2(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det);
 int remake_tracklets(vector <hldet> &detvec, vector <hldet> &detvec_fixed, vector <hlimage> &image_log,vector <tracklet> &tracklets, vector <longpair> &trk2det, int verbose);
@@ -1973,3 +2045,16 @@ int arctrace03(int polyorder, int planetnum, const vector <long double> &planetm
 int eigensolve01(const vector <vector <long double>> &A, vector <vector <long double>> &E, vector <long double> &eigenvals, long double eigenoffmax, long eigenitmax);
 int eigensolve02(const vector <vector <long double>> &A, vector <vector <long double>> &E, vector <long double> &eigenvals, long double eigenoffmax, long eigenitmax);
 int anglevec_meanrms(const vector <double> &angles, double period, double *median, double *mean, double *rms);
+int accelcalc02(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_statevecs, const vector <double> &targ_statevec, vector <double> &accel);
+int accelcalc02LD(int planetnum, const vector <long double> &planetmasses, const vector <long double> &planet_statevecs, const vector <long double> &targ_statevec, vector <long double> &accel);
+int tidecalc01(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_statevecs, const vector <double> &targ_statevec, vector <double> &accel, vector <vector <double>> &tidemat);
+int integrate_statevec03(int polyorder, int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace);
+int integrate_everhart(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace, int polyorder);
+int integrate_everhart_vareq(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int polyorder);
+int integrate_vareq01(int polyorder, int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace);
+int integrate_everhart_vareq02(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace);
+int integrate_vareq02(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace);
+int integrate_everhart02(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace);
+int integrate_statevec04(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace);
+int obsint_everhart_vareq01(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, const vector <double> &obsMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int verbose);
+int obsint_vareq01(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, const vector <double> &obsMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int verbose);

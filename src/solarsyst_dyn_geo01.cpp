@@ -198,7 +198,7 @@ void make_LDvec(int nx, vector <long double> &ldvec)
 {
   int i=0;
   ldvec={};
-  for(i=0;i<nx;i++) ldvec.push_back(0.0);
+  for(i=0;i<nx;i++) ldvec.push_back(0.0l);
 }
 
 void make_LDmat(int nx, int ny, vector <vector <long double>> &ldmat)
@@ -210,7 +210,7 @@ void make_LDmat(int nx, int ny, vector <vector <long double>> &ldmat)
   
   for(i=0;i<nx;i++) {
     tvec={};
-    for(j=0;j<ny;j++) tvec.push_back(0.0);
+    for(j=0;j<ny;j++) tvec.push_back(0.0l);
     ldmat.push_back(tvec);
   }
 }
@@ -3452,6 +3452,30 @@ int celestial_to_statevec(double RA, double Dec,double delta,point3d &baryvec)
   return(0);
 }
 
+// celestial_to_statevec2: October 14, 2025:
+// Like celestial_to_statevec, but output a regular vector
+// of type double, rather than using the point3d class
+int celestial_to_statevec2(double RA, double Dec,double delta, vector <double> &baryvec)
+{
+  double x,y,z,theta,phi,thetapole,phipole;
+  x = y = z = theta = phi = thetapole = phipole = 0.0;
+  theta = Dec/DEGPRAD;
+  phi = RA/DEGPRAD;
+  thetapole = NEPDEC/DEGPRAD;
+  make_dvec(3,baryvec);
+      
+  x = -cos(theta)*sin(phi); // sin(phi) and cos(phi) are switched here
+  y = cos(theta)*cos(phi);  // because we're rotating by 270 degrees: that's
+  z = sin(theta);           // the RA of the Ecliptic Pole.
+  baryvec[0] = delta*y;
+  baryvec[1] = delta*(-x*sin(thetapole) + z*cos(thetapole));
+  baryvec[2] = delta*(x*cos(thetapole) + z*sin(thetapole));
+  // -x and y are switched above becuase we are rotating by 90 degrees
+  // after the pole-switch, to get the old North Celestial Pole
+  // on the +y axis where it should be.
+  return(0);
+}
+
 int celestial_to_statevecLD(long double RA, long double Dec,long double delta,point3LD &baryvec)
 {
   long double x,y,z,theta,phi,thetapole,phipole;
@@ -3578,6 +3602,26 @@ int get_sv_string01(const string &lnfromfile, string &outstring, int startpoint)
   if(outstring.size() > 0) return(i-1); // Worked fine.
   else return(-1); // Error code
 }
+
+// get_psv_string01: Given a line read from a file with values
+// separated by a pipe, and a starting point along that line, read the next value,
+// and put it into the output string, STRIPPING OUT ANY SPACES.
+// If the read was successful, return the line index of the pipe, newline,
+// or EOF at the end of the value read.
+// Otherwise, return -1 as an error code.
+int get_psv_string01(const string &lnfromfile, string &outstring, int startpoint)
+{
+  unsigned int i=startpoint;
+  char c='0';
+  outstring="";
+  while(i<lnfromfile.size() && c!='|' && c!='\n' && c!='\v' && c!='\f' && c!='\r' && c!=EOF) {
+    c=lnfromfile[i];
+    if(c!='|' && c!='\n' && c!=' ' && c!=EOF) outstring.push_back(c);
+    i++;
+  }
+  return(i-1);
+}
+
 
 // read_horizons_file: November 2021:
 // Given an input state-vector ephemeris file downloaded directly
@@ -3949,6 +3993,267 @@ int read_horizons_fileLD(string infile, vector <long double> &mjdvec, vector <po
   else return(reachedeof);
 }
 
+// read_horizons_statevec: October 01, 2025
+// Like read_horizons_file(), but outputs simple vector arrays
+// instead of the point3d vectors. General description of both
+// programs: given an input state-vector ephemeris file downloaded
+// directly from JPL Horizons, read it into a state vector array
+// Note that the default unit convention is km for positions and
+// km/sec for velocities. Note also that JPL state-vector
+// ephemerides use dynamical TT, which is ahead of UT1 by about
+// 70 seconds in 2022. This program does NOT correct TT to UT1,
+// but programs making use of the ouput mjd, position, and velocity
+// vectors might need to.
+int read_horizons_statevec(string infile, vector <double> &mjdvec, vector <vector <double>> &statevecs)
+{
+  ifstream instream1 {infile};
+  vector <double> onestatevec;
+  int reachedeof=0;
+  int ondata=0;
+  unsigned int i=0;
+  int reachedend=0;
+  string teststring, lnfromfile;
+  double ldval = 0.0l;
+
+  mjdvec={};
+  statevecs={};
+  onestatevec={};
+  
+  if(!instream1) {
+    cerr << "ERROR: can't open input file " << infile << "\n";
+    return(1);
+  }
+  while(reachedeof==0 && !reachedend) {
+    while(!ondata && !reachedend) {
+      // See if this line contains the code for start-of-data.
+      lnfromfile = "";
+      teststring = "";
+      getline(instream1,lnfromfile);
+      if(instream1.eof()) reachedeof=1; //End of file, fine.
+      else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+      else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+ 
+      if(lnfromfile.size()>=5) {
+	for(i=0;i<5;i++) {
+	  teststring.push_back(lnfromfile[i]);
+	}
+	if(teststring == "$$SOE") ondata=1;
+	else if(teststring == "$$EOE") reachedend=1;
+      }
+    }
+    while(ondata && !reachedend && reachedeof==0) {
+      lnfromfile = "";
+      teststring = "";
+      getline(instream1,lnfromfile);
+      if(instream1.eof()) reachedeof=1; //End of file, fine.
+      else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+      else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+      if(lnfromfile.size()>=5) {
+	for(i=0;i<5;i++) {
+	  teststring.push_back(lnfromfile[i]);
+	}
+	if(teststring == "$$EOE") reachedend=1;
+      }
+      if(!reachedend && reachedeof==0) {
+	//Attempt to read entire four-line block.
+	//First line has MJD
+	try { ldval=stold(lnfromfile); }
+	catch(...) { cerr << "ERROR: cannot read MJD from line " << lnfromfile << "\n";
+	  return(1); }
+	mjdvec.push_back(ldval-MJDOFF);
+	//Next line has x,y,z positions
+	onestatevec={};
+	lnfromfile = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+	//Read the x, y, and z positions, each of which follows an equals sign
+	for(long j=0; j<3; j++) {
+	  while(lnfromfile.size()>0 && lnfromfile[0]!='=') lnfromfile.erase(lnfromfile.begin());
+	  // Erase once more to get the equals sign itself
+	  lnfromfile.erase(lnfromfile.begin());
+	  try { ldval=stold(lnfromfile); }
+	  catch(...) { cerr << "ERROR: cannot read position component " << teststring << " from line " << lnfromfile << "\n";
+	    return(1); }
+	  onestatevec.push_back(ldval);
+	  teststring = "";
+	}
+	//Next line has x,y,z velocities
+	lnfromfile = "";
+	teststring = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+	for(long j=0; j<3; j++) {
+	  while(lnfromfile.size()>0 && lnfromfile[0]!='=') lnfromfile.erase(lnfromfile.begin());
+	  // Erase once more to get the equals sign itself
+	  lnfromfile.erase(lnfromfile.begin());
+	  try { ldval=stold(lnfromfile); }
+	  catch(...) { cerr << "ERROR: cannot read velocity component " << teststring << " from line " << lnfromfile << "\n";
+	    return(1); }
+	  onestatevec.push_back(ldval);
+	  teststring = "";
+	}
+	if(onestatevec.size()!=6 && reachedeof == 0) {
+	  cerr << "ERROR: read only " << onestatevec.size() << " values for statevec " << statevecs.size() << "\n";
+	  return(1);
+	}
+	// Load output vectors
+	statevecs.push_back(onestatevec);
+	// Next line is of no current interest: read and discard
+	lnfromfile = "";
+	teststring = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+      }
+    }
+  }
+  if(reachedeof==1 && ondata==1) {
+    //Read file successfully to the end.
+    return(0);
+  }
+  else if(reachedeof==1) {
+    //Did not find any data
+    return(1);
+  }
+  else return(reachedeof);
+}
+
+// read_horizons_statevecLD: October 01, 2025
+// Like read_horizons_fileLD(), but outputs simple vector arrays
+// instead of the point3LD vectors. General description of both
+// programs: given an input state-vector ephemeris file downloaded
+// directly from JPL Horizons, read it into a state vector array
+// Note that the default unit convention is km for positions and
+// km/sec for velocities. Note also that JPL state-vector
+// ephemerides use dynamical TT, which is ahead of UT1 by about
+// 70 seconds in 2022. This program does NOT correct TT to UT1,
+// but programs making use of the ouput mjd, position, and velocity
+// vectors might need to.
+int read_horizons_statevecLD(string infile, vector <long double> &mjdvec, vector <vector <long double>> &statevecs)
+{
+  ifstream instream1 {infile};
+  vector <long double> onestatevec;
+  int reachedeof=0;
+  int ondata=0;
+  unsigned int i=0;
+  int reachedend=0;
+  string teststring, lnfromfile;
+  long double ldval = 0.0l;
+
+  mjdvec={};
+  statevecs={};
+  onestatevec={};
+  
+  if(!instream1) {
+    cerr << "ERROR: can't open input file " << infile << "\n";
+    return(1);
+  }
+  while(reachedeof==0 && !reachedend) {
+    while(!ondata && !reachedend) {
+      // See if this line contains the code for start-of-data.
+      lnfromfile = "";
+      teststring = "";
+      getline(instream1,lnfromfile);
+      if(instream1.eof()) reachedeof=1; //End of file, fine.
+      else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+      else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+ 
+      if(lnfromfile.size()>=5) {
+	for(i=0;i<5;i++) {
+	  teststring.push_back(lnfromfile[i]);
+	}
+	if(teststring == "$$SOE") ondata=1;
+	else if(teststring == "$$EOE") reachedend=1;
+      }
+    }
+    while(ondata && !reachedend && reachedeof==0) {
+      lnfromfile = "";
+      teststring = "";
+      getline(instream1,lnfromfile);
+      if(instream1.eof()) reachedeof=1; //End of file, fine.
+      else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+      else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+      if(lnfromfile.size()>=5) {
+	for(i=0;i<5;i++) {
+	  teststring.push_back(lnfromfile[i]);
+	}
+	if(teststring == "$$EOE") reachedend=1;
+      }
+      if(!reachedend && reachedeof==0) {
+	//Attempt to read entire four-line block.
+	//First line has MJD
+	try { ldval=stold(lnfromfile); }
+	catch(...) { cerr << "ERROR: cannot read MJD from line " << lnfromfile << "\n";
+	  return(1); }
+	mjdvec.push_back(ldval-MJDOFF);
+	//Next line has x,y,z positions
+	onestatevec={};
+	lnfromfile = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+	//Read the x, y, and z positions, each of which follows an equals sign
+	for(long j=0; j<3; j++) {
+	  while(lnfromfile.size()>0 && lnfromfile[0]!='=') lnfromfile.erase(lnfromfile.begin());
+	  // Erase once more to get the equals sign itself
+	  lnfromfile.erase(lnfromfile.begin());
+	  try { ldval=stold(lnfromfile); }
+	  catch(...) { cerr << "ERROR: cannot read position component " << teststring << " from line " << lnfromfile << "\n";
+	    return(1); }
+	  onestatevec.push_back(ldval);
+	  teststring = "";
+	}
+	//Next line has x,y,z velocities
+	lnfromfile = "";
+	teststring = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+	for(long j=0; j<3; j++) {
+	  while(lnfromfile.size()>0 && lnfromfile[0]!='=') lnfromfile.erase(lnfromfile.begin());
+	  // Erase once more to get the equals sign itself
+	  lnfromfile.erase(lnfromfile.begin());
+	  try { ldval=stold(lnfromfile); }
+	  catch(...) { cerr << "ERROR: cannot read velocity component " << teststring << " from line " << lnfromfile << "\n";
+	    return(1); }
+	  onestatevec.push_back(ldval);
+	  teststring = "";
+	}
+	if(onestatevec.size()!=6 && reachedeof == 0) {
+	  cerr << "ERROR: read only " << onestatevec.size() << " values for statevec " << statevecs.size() << "\n";
+	  return(1);
+	}
+	// Load output vectors
+	statevecs.push_back(onestatevec);
+	// Next line is of no current interest: read and discard
+	lnfromfile = "";
+	teststring = "";
+	getline(instream1,lnfromfile);
+	if(instream1.eof()) reachedeof=1; //End of file, fine.
+	else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+	else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+      }
+    }
+  }
+  if(reachedeof==1 && ondata==1) {
+    //Read file successfully to the end.
+    return(0);
+  }
+  else if(reachedeof==1) {
+    //Did not find any data
+    return(1);
+  }
+  else return(reachedeof);
+}
+
+
 // read_horizons_csv: April 19, 2023:
 // Given an input state-vector ephemeris file downloaded directly
 // from JPL Horizons, WITH THE OPTIONAL CSV FORMAT SELECTED,
@@ -4247,6 +4552,80 @@ int read_horizons_csv(string infile, vector <EarthState> &earthpos)
     cerr << "ERROR: Stopped reading file " << infile << " before the end\n";
     cerr << "Last point " << earthpos.size() << ", last line " << lnfromfile << "\n";
     return(1);
+  } else return(reachedeof);
+}
+
+// read_t6text_statevec: October 11, 2025
+// Given an input ephemeris file with no header, wherein each line gives
+// the time (MJD) and then the six-element state vector (x, y, z, vx, vy, vz)
+// for a single planet, read the file into an mjd vector and a state vector array.
+// The input file is expected to be space-delimited.
+// Note that the default unit convention is km for positions and
+// km/sec for velocities. Note also that JPL state-vector
+// ephemerides use dynamical TT, which is ahead of UT1 by about
+// 70 seconds in 2022. This program does NOT correct TT to UT1,
+// but programs making use of the ouput mjd, position, and velocity
+// vectors might need to.
+int read_t6text_statevec(string infile, vector <double> &mjdvec, vector <vector <double>> &statevecs)
+{
+  ifstream instream1 {infile};
+  vector <double> onestatevec;
+  int reachedeof=0;
+  unsigned int i=0;
+  string stest, lnfromfile;
+  double ldval = 0.0l;
+  double mjdval = 0.0l;
+  int startpoint=0;
+  int endpoint=0;
+  int badread=0;
+
+  mjdvec={};
+  statevecs={};
+  onestatevec={};
+  
+  if(!instream1) {
+    cerr << "ERROR: can't open input file " << infile << "\n";
+    return(1);
+  }
+  while(!instream1.eof() && !instream1.fail() && !instream1.bad()) {
+    lnfromfile = "";
+    getline(instream1,lnfromfile);
+    if(instream1.eof()) reachedeof=1; //End of file, fine.
+    else if(instream1.fail()) reachedeof=-1; //Something wrong, warn
+    else if(instream1.bad()) reachedeof=-2; //Worse problem, warn
+    else {
+      // Attempt to read the seven elements (MJD, x, y, z, vx, vy, vz) from this line
+      startpoint=0;
+      onestatevec={};
+      mjdval = 0.0;
+      if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+      if(endpoint>0) {
+	try { mjdval = stod(stest); }
+	catch(...) { cerr << "ERROR: cannot read MJD " << stest << " from line " << lnfromfile << "\n";
+	  badread = 1; }
+      } else badread=1;
+      if(badread==0) {
+	for(i=0;i<6;i++) {
+	  ldval = 0.0;
+	  startpoint = endpoint+1;
+	  if(badread==0) endpoint = get_sv_string01(lnfromfile,stest,startpoint);
+	  if(endpoint>0) {
+	    try { ldval = stod(stest); }
+	    catch(...) { cerr << "ERROR: cannot read state vector component " << i << " from line " << lnfromfile << "\n";
+	      badread = 1; }
+	    if(badread==0) onestatevec.push_back(ldval);
+	  } else badread=1;
+	}
+      }
+      if(badread==0) {
+	mjdvec.push_back(mjdval);
+	statevecs.push_back(onestatevec);
+      }
+    }
+  }
+  if(reachedeof==1) {
+    //Read file successfully to the end.
+    return(0);
   } else return(reachedeof);
 }
 
@@ -4827,7 +5206,7 @@ int solvematrix01(const vector <vector <double>> &inmat, int eqnum, vector <doub
 
   eqhi=termhi=eqct=termct=i=j=0;
   max=pivot=0.0;
-     
+  if(verbose>=1) cout << "solvematrix01 called with dimensions " << inmat.size() << " by " << inmat[0].size() << "\n";
   if(eqnum==1)
     {
       if(inmat[0][1]!=0.0)
@@ -5068,6 +5447,38 @@ int solvematrix01LD(const vector <vector <long double>> &inmat, int eqnum, vecto
       outvec[termhi-1]=-coeffvec[0];
       for(i=0;i<eqnum-1;i++) outvec[termhi-1]-=coeffvec[i+1]*outvec2[i];
     }
+  return(0);
+}
+
+// invertmatrix01: October 15, 2025
+// Given an NxN matrix, find its inverse, or report the matrix as singular.
+int invertmatrix01(const vector <vector <double>> &inmat, int N, vector <vector <double>> &outmat, int verbose)
+{
+  vector <vector <double>> solvemat;
+  vector <double> xvec;
+  long i,j,k,status;
+  i=j=k=status=0;
+  
+  make_dmat(N,N+1,solvemat);
+  make_dmat(N,N,outmat);
+
+  for(k=0;k<N;k++) {
+    // Solve for the kth column of the output matrix
+    for(i=0;i<N;i++) {
+      solvemat[i][0] = 0.0;
+      for(j=0;j<N;j++) solvemat[i][1+j] = inmat[i][j];
+    }
+    solvemat[k][0] = -1.0;
+    xvec={};
+    make_dvec(N,xvec);
+    status = solvematrix01(solvemat, N, xvec, verbose);
+    cout << "solvematrix finished OK, xvec = " << xvec[0] << " " << xvec[1] << "\n";
+    if(status!=0) {
+      cerr << "ERROR: solvematrix01, called from invertmatrix01, returns error code " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<N;i++) outmat[i][k] = xvec[i];
+  }
   return(0);
 }
 
@@ -5706,6 +6117,155 @@ int planetposvel01LD(long double detmjd, int polyorder, const vector <long doubl
   return(0);
 }
 
+// planetpos02LD: October 03, 2025:
+// Like planetposvel01LD, but returns results in simple vector
+// arrays instead of using the point3LD class.
+// Calculates positions and velocities for A single planet
+// given an input vector planet_statvecs with one row per entry
+// in planetmjd, and 6 columns, giving x, y, z, vx, vy, vz
+// for a planet 0. Returns the same information in the same
+// format, evaluated at just one point in time, in the output vector
+// outstatevecs.
+int planetpos02LD(long double nowmjd, int polyorder, const vector <long double> &planetmjd, const vector <vector <long double>> &planet_statevecs, vector <long double> &outstatevecs)
+{
+  int fitnum = polyorder+1;
+  int mjdsize = planetmjd.size();
+  int posvecsize = planet_statevecs.size(); 
+  int pointsbefore = fitnum - fitnum/2;
+  int pbf=0;
+  int svct=0;
+  vector <long double> xvec;
+  vector <long double> yvec;
+  vector <long double> fitvec;
+  long double tdelt=0l;
+  long double sumvar=0l;
+  long double posval=0l;
+  int i=0;
+  int j=0;
+  int k=0;
+  make_LDvec(fitnum,fitvec);
+
+  if(mjdsize != posvecsize) {
+    cout << "ERROR: vector sizes do not match in planetpos02LD!\n";
+    cout << "Got a size of " << posvecsize << " for the planet_statevecs vector\n";
+    cout << "and an mjd vector size of " << mjdsize << "\n";
+    return(-1);
+  }
+  
+  // Identify the point pbf that is a bit before the specified
+  // time nowmjd, and is the appropriate point to start the interpolation.
+  // The number of timesteps pbf should be before nowmjd depends on
+  // the order of the polynomial interpolation. For higher-order interpolations,
+  // we need a larger number of total points, and nowmjd should always be
+  // near the center of the set of point being considered.
+  pbf=0;
+  i=mjdsize;
+  while(i>0 && pbf<pointsbefore)
+    {
+      i--;
+      if(planetmjd[i]<nowmjd) pbf++;
+    }
+  pbf=i;
+
+  //Interpolate to find the exact position of each planet at nowmjd.
+  xvec={};
+  for(i=pbf;i<pbf+fitnum;i++) xvec.push_back(planetmjd[i]-planetmjd[pbf]);
+  tdelt = nowmjd-planetmjd[pbf];
+  outstatevecs={};
+  for(svct=0; svct<6; svct++) {
+    yvec={};
+    // Load vectors to fit x-coordinate of the planet's position.
+    for(i=pbf;i<pbf+fitnum;i++) yvec.push_back(planet_statevecs[i][svct]);
+    // Solve for polynomial interpolation
+    perfectpoly01LD(xvec,yvec,fitvec);
+    // Calculate interpolated position.
+    posval = fitvec[0];
+    for(j=1;j<fitnum;j++) {
+      sumvar = fitvec[j]*tdelt;
+      for(k=2;k<=j;k++) sumvar*=tdelt;
+      posval += sumvar;
+    }
+    outstatevecs.push_back(posval);
+  }
+  return(0);
+}
+
+// planetpos02: October 14, 2025:
+// Like planetpos02LD, but at only double precision rather than
+// long double. 
+// Calculates positions and velocities for a single planet
+// given an input vector planet_statvecs with one row per entry
+// in planetmjd, and 6 columns, giving x, y, z, vx, vy, vz
+// for a planet 0. Returns the same information in the same
+// format, evaluated at just one point in time, in the output vector
+// outstatevecs.
+int planetpos02(double nowmjd, int polyorder, const vector <double> &planetmjd, const vector <vector <double>> &planet_statevecs, vector <double> &outstatevecs)
+{
+  int fitnum = polyorder+1;
+  int mjdsize = planetmjd.size();
+  int posvecsize = planet_statevecs.size(); 
+  int pointsbefore = fitnum - fitnum/2;
+  int pbf=0;
+  int svct=0;
+  vector <double> xvec;
+  vector <double> yvec;
+  vector <double> fitvec;
+  double tdelt=0l;
+  double sumvar=0l;
+  double posval=0l;
+  int i=0;
+  int j=0;
+  int k=0;
+  make_dvec(fitnum,fitvec);
+
+  if(mjdsize != posvecsize) {
+    cout << "ERROR: vector sizes do not match in planetpos02LD!\n";
+    cout << "Got a size of " << posvecsize << " for the planet_statevecs vector\n";
+    cout << "and an mjd vector size of " << mjdsize << "\n";
+    return(-1);
+  }
+  if(nowmjd<planetmjd[0] || nowmjd>planetmjd[planetmjd.size()-1]) {
+    cerr << "ERROR: planetpos02 called with mjd " << nowmjd << " not within the " << planetmjd[0] << " to " << planetmjd[planetmjd.size()-1] << " of its input state vector ephemerides\n";
+    return(2);
+  }
+  
+  // Identify the point pbf that is a bit before the specified
+  // time nowmjd, and is the appropriate point to start the interpolation.
+  // The number of timesteps pbf should be before nowmjd depends on
+  // the order of the polynomial interpolation. For higher-order interpolations,
+  // we need a larger number of total points, and nowmjd should always be
+  // near the center of the set of point being considered.
+  pbf=0;
+  i=mjdsize;
+  while(i>0 && pbf<pointsbefore)
+    {
+      i--;
+      if(planetmjd[i]<nowmjd) pbf++;
+    }
+  pbf=i;
+
+  //Interpolate to find the exact position of each planet at nowmjd.
+  xvec={};
+  for(i=pbf;i<pbf+fitnum;i++) xvec.push_back(planetmjd[i]-planetmjd[pbf]);
+  tdelt = nowmjd-planetmjd[pbf];
+  outstatevecs={};
+  for(svct=0; svct<6; svct++) {
+    yvec={};
+    // Load vectors to fit x-coordinate of the planet's position.
+    for(i=pbf;i<pbf+fitnum;i++) yvec.push_back(planet_statevecs[i][svct]);
+    // Solve for polynomial interpolation
+    perfectpoly01(xvec,yvec,fitvec);
+    // Calculate interpolated position.
+    posval = fitvec[0];
+    for(j=1;j<fitnum;j++) {
+      sumvar = fitvec[j]*tdelt;
+      for(k=2;k<=j;k++) sumvar*=tdelt;
+      posval += sumvar;
+    }
+    outstatevecs.push_back(posval);
+  }
+  return(0);
+}
 
 // nplanetpos01LD: November 30, 2021:
 // like planetpos01LD, but calculates positions for
@@ -5814,6 +6374,80 @@ int nplanetpos01LD(long double detmjd, int planetnum, int polyorder, const vecto
   }
   return(0);
 }
+
+// nplanetpos02: October 03, 2025:
+// Calculates positions and velocities for planetnum different planets,
+// given an input vector planet_statvecs with one row per entry
+// in planetmjd, and 6*planetnum columns, giving x, y, z, vx, vy, vz
+// for planet 0, followed by the same quantities for planet 1,
+// then planet 2, etc. Returns the same information in the same
+// format, evaluated at just one point in time, in the output vector
+// outstatevecs.
+int nplanetpos02(double nowmjd, int planetnum, int polyorder, const vector <double> &planetmjd, const vector <vector <double>> &planet_statevecs, vector <double> &outstatevecs)
+{
+  int fitnum = polyorder+1;
+  int mjdsize = planetmjd.size();
+  int posvecsize = planet_statevecs.size(); 
+  int pointsbefore = fitnum - fitnum/2;
+  int pbf=0;
+  int planetct=0;
+  vector <double> xvec;
+  vector <double> yvec;
+  vector <double> fitvec;
+  double tdelt=0l;
+  double sumvar=0l;
+  double posval=0l;
+  int i=0;
+  int j=0;
+  int k=0;
+  make_dvec(fitnum,fitvec);
+
+  if(mjdsize != posvecsize) {
+    cout << "ERROR: vector sizes do not match in nplanetpos02!\n";
+    cout << "Got a size of " << posvecsize << " for the planet_statevecs vector\n";
+    cout << "and an mjd vector size of " << mjdsize << "\n";
+    return(-1);
+  }
+  
+  // Identify the point pbf that is a bit before the specified
+  // time nowmjd, and is the appropriate point to start the interpolation.
+  // The number of timesteps pbf should be before nowmjd depends on
+  // the order of the polynomial interpolation. For higher-order interpolations,
+  // we need a larger number of total points, and nowmjd should always be
+  // near the center of the set of point being considered.
+  pbf=0;
+  i=mjdsize;
+  while(i>0 && pbf<pointsbefore)
+    {
+      i--;
+      if(planetmjd[i]<nowmjd) pbf++;
+    }
+  pbf=i;
+
+  //Interpolate to find the exact position of each planet at nowmjd.
+  xvec={};
+  for(i=pbf;i<pbf+fitnum;i++) xvec.push_back(planetmjd[i]-planetmjd[pbf]);
+  tdelt = nowmjd-planetmjd[pbf];
+  outstatevecs={};
+  for(planetct=0; planetct<planetnum*6; planetct++) {
+    yvec={};
+    // Load vectors to fit x-coordinate of the planet's position.
+    for(i=pbf;i<pbf+fitnum;i++) yvec.push_back(planet_statevecs[i][planetct]);
+    // Solve for polynomial interpolation
+    perfectpoly01(xvec,yvec,fitvec);
+    // Calculate interpolated position.
+    posval = fitvec[0];
+    for(j=1;j<fitnum;j++) {
+      sumvar = fitvec[j]*tdelt;
+      for(k=2;k<=j;k++) sumvar*=tdelt;
+      posval += sumvar;
+    }
+    outstatevecs.push_back(posval);
+  }
+  return(0);
+}
+
+
 
 // nplanetgrab01LD: December01, 2021:
 // Simply grab positions for every planet at a given, specified
@@ -6269,6 +6903,103 @@ int observer_geocoords01(double detmjd, double lon, double obscos, double obssin
   // crad is the distance from the geocenter to the observer, in AU.
   return(0);
 }
+
+// observer_barystate01: October 14, 2025:
+// Like observer_baryvel01, but uses pure vectors for input
+// and output, rather than the point3d class
+// Note that the handling of Earth's rotation assumes that the
+// input MJD is UT1, while the ephemeris vectors Earth_mjd
+// and Earth_statevec are in dynamical TT. Hence, after calculating
+// aspects related to Earth's rotation with detmjd as input,
+// planetpos02 is called with time detmjd+TTDELTAT/SOLARDAY,
+// thus converting the input UT1 into TT.
+int observer_barystate01(double detmjd, int polyorder, double lon, double obscos, double obssine, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevec, vector <double> &outstate, int verbose)
+{
+  double gmst=0;
+  double djdoff = detmjd-51544.5l;
+  double zenithRA=0.0l;
+  double zenithDec=0.0l;
+  double velRA=0.0l; // RA of the observer's geocentric velocity vector
+  double velDec=0.0l; // Dec of the observer's geocentric velocity vector, always 0.
+  double junkRA=0.0l;
+  double junkDec=0.0l;
+  double crad = sqrt(obscos*obscos + obssine*obssine)*EARTHEQUATRAD;
+  double cvel = 2.0l*M_PI*obscos*EARTHEQUATRAD/SIDEREALDAY;
+  vector <double> obs_from_geocen;
+  vector <double> vel_from_geocen;
+  vector <double> geocen_state;
+  long i=0;
+  int status=0;
+
+  make_dvec(3,obs_from_geocen);
+  make_dvec(3,vel_from_geocen);
+  make_dvec(6,geocen_state);
+  make_dvec(6,outstate);
+  
+  gmst = 18.697374558l + 24.06570982441908l*djdoff;
+  // Add the longitude, converted to hours.
+  // Note: at this point it stops being gmst.
+  gmst += lon/15.0l;
+  // Get a value between 0 and 24.0.
+  while(gmst>=24.0l) gmst-=24.0l;
+  while(gmst<0.0l) gmst+=24.0l;
+  // Convert to degrees
+  zenithRA = gmst * 15.0l;
+  // Get zenithDec    
+  if(obscos!=0.0l) {
+    zenithDec = atan(obssine/obscos)*DEGPRAD;
+  } else if(obssine>=0.0l) {
+    zenithDec = 90.0l;
+  } else {
+    zenithDec=-90.0l;
+  }
+  // Calculate RA and Dec of the observer's geocentric velocity vector.
+  velRA = zenithRA+90.0l;
+  if(velRA >= 360.0l) velRA -= 360.0l;
+  velDec = 0.0l;
+  
+  // Now zenithRA and zenithDec are epoch-of-date coordinates.
+  // If you want them in J2000.0, this is the place to convert them.
+  int precesscon=-1; //Precess epoch-of-date to J2000.0
+  junkRA = zenithRA/DEGPRAD;
+  junkDec = zenithDec/DEGPRAD;
+  precess01a(junkRA,junkDec,detmjd,&zenithRA,&zenithDec,precesscon);
+  zenithRA*=DEGPRAD;
+  zenithDec*=DEGPRAD;
+  if(verbose>0) cout << "Calling celestial_to_statevec2\n";
+  celestial_to_statevec2(zenithRA,zenithDec,crad,obs_from_geocen);
+  if(verbose>0) cout << "Celestial_to_statevec2 returns obs_from_geocen = " << obs_from_geocen[0] << " "  << obs_from_geocen[1] << " "  << obs_from_geocen[2] << "\n";
+  // crad is the distance from the geocenter to the observer, in AU.
+  // Now velRA and velDec are also epoch-of-date coordinates,
+  // and hence should be converted to J2000.0.
+  junkRA = velRA/DEGPRAD;
+  junkDec = velDec/DEGPRAD;
+  precess01a(junkRA,junkDec,detmjd,&velRA,&velDec,precesscon);
+  velRA*=DEGPRAD;
+  velDec*=DEGPRAD;
+  if(verbose>0) cout << "Calling celestial_to_statevec2\n";
+  celestial_to_statevec2(velRA,velDec,cvel,vel_from_geocen);
+  if(verbose>0) cout << "Celestial_to_statevec2 returns vel_from_geocen = " << vel_from_geocen[0] << " "  << vel_from_geocen[1] << " "  << vel_from_geocen[2] << "\n";
+  // cvel is the Earth's rotation velocity at the latitude of
+  // the observer, in km/sec.
+
+  if(verbose>0) cout << "Calling planetpos02 with " << Earth_mjd.size() << " " << Earth_statevec.size() << "\n";
+  status = planetpos02(detmjd+TTDELTAT/SOLARDAY,polyorder,Earth_mjd,Earth_statevec,geocen_state);
+  if(verbose>0) cout << "planetpos02 returns " << geocen_state[0] << " " << geocen_state[1] << " " << geocen_state[2] << " " << geocen_state[3] << " " << geocen_state[4] << " " << geocen_state[5] << "\n";
+  if(status!=0) {
+    cerr << "ERROR: planetpos02 returned error status " << status << " when called by observer_barystate01\n";
+    return(status);
+  }
+
+  for(i=0;i<3;i++) outstate[i] = geocen_state[i] + obs_from_geocen[i];
+  for(i=3;i<6;i++) outstate[i] = geocen_state[i] + vel_from_geocen[i-3];
+ 
+  //cout << "spinvel: " << vel_from_geocen.x << " " << vel_from_geocen.y << " " << vel_from_geocen.z << "\n";
+  //cout << "orbvel: " << vel_from_barycen.x << " " << vel_from_barycen.y << " " << vel_from_barycen.z << "\n";
+  //cout << "total: " << outvel.x << " " << outvel.y << " " << outvel.z << "\n";
+  return(0);
+}
+
 
 // helioproj01: November 26, 2021
 int helioproj01(point3d unitbary, point3d obsbary,double heliodist,double &geodist, point3d &projbary)
@@ -9225,6 +9956,7 @@ int readconfigLD(ifstream &instream1, long double *ldval)
   }
 }
 
+
 // readconfigd: December 2021
 // Read a single double-precision parameter from a file stream, where
 // the calling function guarantees that every line in the input file
@@ -10374,6 +11106,144 @@ int stateunitLD_to_celestial(point3LD &baryvec, long double &RA, long double &De
   return(0);
 }
 
+// statevec_to_celestial: October 15, 2025
+// Given an input non-normalized vector in the solar system barycentric coordinate
+// system (as an ordinary, double-precision vector, not the point3d class),
+// calculate the RA, Dec coordinates to which it points.
+// Example: if the input vector is the position of an asteroid relative
+// to an observer in the barycentric system, the output will be the
+// asteroid's RA and Dec in the sky as seen by that observer.
+int statevec_to_celestial(const vector <double> &baryvec, double &RA, double &Dec)
+{
+  double poleDec,zc,yc;
+  double r = nvecabs(baryvec);
+
+  poleDec = NEPDEC/DEGPRAD;
+  zc = baryvec[1]*sin(poleDec) - baryvec[2]*cos(poleDec);
+  yc = baryvec[1]*cos(poleDec) + baryvec[2]*sin(poleDec);
+
+  if(zc==0 && baryvec[0]>=0) RA = 0.0;
+  else if(zc==0 && baryvec[0]<0) RA = M_PI;
+  else if(zc>0) RA = M_PI/2.0L - atan(baryvec[0]/zc);
+  else if(zc<0) RA = 3.0L*M_PI/2.0L - atan(baryvec[0]/zc);
+  else {
+    //Logically excluded case
+    cerr << "Logically excluded case in statevec_to_celestial\n";
+    cerr << "baryvec[0] = " << baryvec[0] << " zc = " << zc << "\n";
+    cerr << "baryvec: " << baryvec[0] << " " << baryvec[1] << " " << baryvec[2] << ", poleDec = " << poleDec << "\n";
+    return(1);
+  }
+
+  if(yc/r>1.0) {
+    if(WARN_INVERSE_TRIG>0) cerr << "Warning: statevec_to_celestial attempting to take arcsin of 1 + " << yc/r-1.0L << "\n";
+    Dec = M_PI/2.0L;
+  } else if(yc/r<-1.0) {
+    if(WARN_INVERSE_TRIG>0) cerr << "Warning: statevec_to_celestial attempting to take arcsin of -1 - " << yc/r+1.0L << "\n";
+    Dec = -M_PI/2.0L;
+  } else {
+    Dec = asin(yc/r);
+  }
+
+  RA *= DEGPRAD;
+  Dec *= DEGPRAD;
+  return(0);
+}
+
+// statevec_to_celederiv: October 15, 2025
+// Given an input non-normalized vector in the solar system barycentric coordinate
+// system (as an ordinary, double-precision vector, not the point3d class),
+// calculate the RA, Dec coordinates to which it points, and the derivatives
+// of the RA and Dec with respect to each component of the vector:
+// that is, dRA/dx, dRA/dy, dRA/dz, and dDec/dx, dDec/dy, and dDec/dz.
+// Example: if the input vector is the position of an asteroid relative
+// to an observer in the barycentric system, the output will be the
+// asteroid's RA and Dec in the sky as seen by that observer.
+#define POLARXRAD 1.0e-4
+int statevec_to_celederiv(const vector <double> &baryvec, double &RA, double &Dec, vector <double> &RA_deriv, vector <double> &Dec_deriv)
+{
+  double poleDec,zc,yc;
+  double dradx,drady,dradz,ddecdx,ddecdy,ddecdz;
+  double ra_denom_inv,dec_denom_inv;
+  double r = nvecabs(baryvec);
+  RA_deriv = Dec_deriv = {};
+  if(!isnormal(r) || r<0.0) {
+    cerr << "ERROR: statevec_to_celederiv() called with position vector of zero or undefined length\n";
+    RA = Dec = 0.0;
+    return(1);
+  }
+  poleDec = NEPDEC/DEGPRAD;
+  zc = baryvec[1]*sin(poleDec) - baryvec[2]*cos(poleDec);
+  yc = baryvec[1]*cos(poleDec) + baryvec[2]*sin(poleDec);
+
+  if(zc==0 && baryvec[0]>=0) RA = 0.0;
+  else if(zc==0 && baryvec[0]<0) RA = M_PI;
+  else if(zc>0) RA = M_PI/2.0L - atan(baryvec[0]/zc);
+  else if(zc<0) RA = 3.0L*M_PI/2.0L - atan(baryvec[0]/zc);
+  else {
+    //Logically excluded case
+    cerr << "Logically excluded case in statevec_to_celederiv\n";
+    cerr << "baryvec[0] = " << baryvec[0] << " zc = " << zc << "\n";
+    cerr << "baryvec: " << baryvec[0] << " " << baryvec[1] << " " << baryvec[2] << ", poleDec = " << poleDec << "\n";
+    return(2);
+  }
+
+  if(yc/r>1.0) {
+    if(WARN_INVERSE_TRIG>0) cerr << "Warning: statevec_to_celestial attempting to take arcsin of 1 + " << yc/r-1.0L << "\n";
+    Dec = M_PI/2.0L;
+  } else if(yc/r<-1.0) {
+    if(WARN_INVERSE_TRIG>0) cerr << "Warning: statevec_to_celestial attempting to take arcsin of -1 - " << yc/r+1.0L << "\n";
+    Dec = -M_PI/2.0L;
+  } else {
+    Dec = asin(yc/r);
+  }
+  RA *= DEGPRAD;
+  Dec *= DEGPRAD;
+
+  ra_denom_inv = 1.0/(zc*zc + baryvec[0]*baryvec[0]);
+  if(!isnormal(ra_denom_inv)) {
+    cerr << "ERROR: logically excluded case in statevec_to_celederiv: ra_denom_inv is singular\n";
+    RA = Dec = 0.0;
+    return(3);
+  }
+  dradx = -zc * ra_denom_inv;
+  drady = baryvec[0]*sin(poleDec) * ra_denom_inv;
+  dradz = -baryvec[0]*cos(poleDec) * ra_denom_inv;
+
+  dec_denom_inv = 1.0/(r*r*sqrt(r*r - yc*yc));
+  if(isnormal(dec_denom_inv)) {
+    ddecdx = -baryvec[0]*yc * dec_denom_inv;
+    ddecdy = (r*r*cos(poleDec) - baryvec[1]*yc) * dec_denom_inv;
+    ddecdz = (r*r*sin(poleDec) - baryvec[2]*yc) * dec_denom_inv;
+  } else {
+    // We probably have a polar declination case, in which
+    // case the derivatives really are singular. Attempt to
+    // rescue the situation by fudging the x coordinate to
+    // move us slightly off the pole.
+    cerr << "WARNING: statevec_to_celederiv finds dec_denom_inv to be non-normal\n";
+    vector <double> fakevec;
+    fakevec.push_back(baryvec[0]+POLARXRAD*r);
+    fakevec.push_back(baryvec[1]);
+    fakevec.push_back(baryvec[2]);
+    double r = nvecabs(fakevec);
+    dec_denom_inv = 1.0/(r*r*sqrt(r*r - yc*yc));
+    if(!isnormal(dec_denom_inv)) {
+      cerr << "ERROR: statevec_to_celederiv finds dec_denom_inv singular even after rescue attempt\n";
+      RA = Dec = 0.0;
+      return(4);
+    }
+    ddecdx = fakevec[0]*yc * dec_denom_inv;
+    ddecdy = (r*r*cos(poleDec) - fakevec[1]*yc) * dec_denom_inv;
+    ddecdz = (r*r*sin(poleDec) - fakevec[2]*yc) * dec_denom_inv;
+  }
+  RA_deriv.push_back(dradx*DEGPRAD);
+  RA_deriv.push_back(drady*DEGPRAD);
+  RA_deriv.push_back(dradz*DEGPRAD);
+  Dec_deriv.push_back(ddecdx*DEGPRAD);
+  Dec_deriv.push_back(ddecdy*DEGPRAD);
+  Dec_deriv.push_back(ddecdz*DEGPRAD);
+  return(0);
+}
+#undef POLARXRAD
 
 #define DEBUG 0
 
@@ -12817,7 +13687,439 @@ int integrate_orbit05LD(int polyorder, int planetnum, const vector <long double>
   }
   return(0);
 }
- 
+
+// integrate_statevec_LDFW01: October 02, 2025
+// Attempts to duplicate the functionality of integrate_orbit05LD(),
+// for forward integration only, with
+// more flexible architecture: specifically, with state vectors stored
+// as regular long double vectors instead of more sophisticated classes.
+// Can handle both backward and forward integration. The initial
+// conditions provided in starting_statevec apply to startpoint.
+int integrate_statevec_LDFW01(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <vector <long double>> &planet_statevecs, const vector <long double> &starting_statevec, int startpoint, int endpoint, vector <long double> &outMJD,  vector <vector <long double>> &targ_statevecs)
+{
+  vector <vector <long double>> targaccel;
+  vector <vector <long double>> accelfit;
+  vector <vector <long double>> targpos;
+  vector <vector <long double>> targvel;
+  vector <vector <long double>> accelmod;
+  vector <long double> temptime;
+  vector <long double> ppxvec;
+  vector <long double> ppyvec;
+  vector <long double> ppfitvec;
+  vector <long double> accelslope;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = endpoint-startpoint+1;
+  int latestpoint=0;
+  int stepsin=0;
+  long double dt0=0L;
+  long double dt2=0L;
+  long double timemult=0L;
+  
+  if(DEBUG>0) {
+    cout << "Inside integrate_statevec_LDFW01()\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+  }
+
+  if(polyorder<2) {
+    cerr << "ERROR: integrate_statevec_LDFW01 called with polyorder = " << polyorder << "\n";
+    cerr << "polyorder must be at least 4!\n";
+    return(1);
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec_LDFW01 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_statevec01LD called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  } 
+  make_LDvec(outnum, outMJD);
+  make_LDmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_LDmat(polyorder+2, 3, targaccel);
+  make_LDmat(polyorder+2, 3, accelfit);
+  make_LDmat(polyorder+2, 3, targpos);
+  make_LDmat(polyorder+2, 3, targvel);
+  make_LDmat(polyorder+2, 3, accelmod);
+  make_LDvec(polyorder+2, temptime);
+  make_LDvec(polyorder+2, ppfitvec);
+  make_LDvec(3, accelslope);
+  
+  if(DEBUG>0) cout << "Allocated vectors OK\n";
+  if(DEBUG>0) cout << "Beginning forward integration, " << startpoint << " to " << endpoint << "\n";
+  // Load the initial time vector
+  for(j=0;j<=polyorder+1;j++) temptime[j] = planetmjd[startpoint+j];
+  // Load starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[0][k] = starting_statevec[k];
+    targvel[0][k] = starting_statevec[3+k];
+  }
+  // Bootstrap up to a fit of order polyorder.
+  // Calculate acceleration at starting point, loading planet positions from big vector.
+  accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint], targpos[0], targaccel[0]); // Acceleration is exact
+  dt0 = (temptime[1]-temptime[0])*SOLARDAY;
+
+  if(DEBUG>0) cout << "Calculated starting acceleration\n";
+
+  // First Approx: estimate next position, assuming constant acceleration.
+  for(k=0;k<3;k++) targpos[1][k] = targpos[0][k] + targvel[0][k]*dt0 + targaccel[0][k]*0.5L*dt0*dt0;
+
+  // Calculate acceleration at this new position.
+  accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+1], targpos[1], targaccel[1]);
+
+  if(DEBUG>0) cout << "Proceeding to second approximation: linearly varying acceleration.\n";
+  // Second approx: linearly varying acceleration.
+  for(k=0;k<3;k++) accelslope[k] = (targaccel[1][k]-targaccel[0][k])/dt0;
+
+  // Improved position for next time step.
+  for(k=0;k<3;k++) targpos[1][k] = targpos[0][k] + targvel[0][k]*dt0 + targaccel[0][k]*0.5L*dt0*dt0 + accelslope[k]*dt0*dt0*dt0/6.0L;
+
+  // Re-calculate acceleration at this improved position.
+  accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+1], targpos[1], targaccel[1]);
+
+  // Re-calculate improved acceleration slope.
+  for(k=0;k<3;k++) accelslope[k] = (targaccel[1][k]-targaccel[0][k])/dt0;
+  
+  // Improved velocity for next time step
+  for(k=0;k<3;k++) targvel[1][k] = targvel[0][k] + targaccel[0][k]*dt0 + accelslope[k]*0.5L*dt0*dt0;
+
+  // Use linearly extrapolated acceleration to estimate position for
+  // the next time step.
+  dt0 = (temptime[2]-temptime[1])*SOLARDAY;
+  for(k=0;k<3;k++) targpos[2][k] = targpos[1][k] + targvel[1][k]*dt0 + targaccel[1][k]*0.5L*dt0*dt0 + accelslope[k]*dt0*dt0*dt0/6.0L;
+  // Calculate acceleration for this extrapolated position.
+  accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+2], targpos[2], targaccel[2]);
+
+  // Now we have three acceleration points: can load for a full polynomial fit.
+  if(DEBUG>0) cout << "Loading for a full polynomial fit.\n";
+  for(stepsin=3;stepsin<=polyorder+1;stepsin++) {
+    if(DEBUG>0) cout << "Working on preliminary polynomial fit of order " << stepsin << "\n";
+    ppxvec={};
+    for(i=0;i<stepsin;i++) ppxvec.push_back((temptime[i] - temptime[0])*SOLARDAY/dt0);
+    for(k=0;k<3;k++) {
+      // Fit for the kth component of acceleration.
+      ppyvec={};
+      for(i=0;i<stepsin;i++) ppyvec.push_back(targaccel[i][k]);
+      // Perform fit, and store in accelfit.
+      if(DEBUG>0) {
+	cout << "Running perfectpoly01LD with sizes " << ppxvec.size() << " and " << ppyvec.size() << "\n";
+	for(i=0;i<stepsin;i++) cout << "x = " << ppxvec[i] << ", y = " << ppyvec[i] << "\n";
+      }
+      perfectpoly01LD(ppxvec,ppyvec,ppfitvec);
+      for(i=0;i<stepsin;i++) accelfit[i][k] = ppfitvec[i];
+    }
+    // Re-calculate all of the positions and velocities using this fit.
+    for(j=1;j<=stepsin;j++) {
+      dt2 = (temptime[j]-temptime[0])*SOLARDAY;
+      // Positions
+      for(k=0;k<3;k++) targpos[j][k] = targpos[0][k] + targvel[0][k]*dt2;
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,2+i)*factorialLD(i)/factorialLD(2+i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) targpos[j][k] += accelfit[i][k]*timemult;
+      }
+      // Velocities
+      for(k=0;k<3;k++) targvel[j][k] = targvel[0][k];
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,1+i)/intpowLD(dt0,i)/((long double)(1+i));
+	for(k=0;k<3;k++) targvel[j][k] += accelfit[i][k]*timemult;
+      }
+      // Accelerations
+      for(k=0;k<3;k++) accelmod[j][k] = 0L;
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) accelmod[j][k] += accelfit[i][k]*timemult;
+      }
+    }
+    // Re-calculate accelerations using these revised positions
+    for(j=1;j<=stepsin;j++) accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+j], targpos[j], targaccel[j]);
+    cout.precision(17);
+  
+    // Perform new fits to revised accelerations
+    ppxvec={};
+    for(i=0;i<stepsin;i++) ppxvec.push_back((temptime[i] - temptime[0])*SOLARDAY/dt0);
+    for(k=0;k<3;k++) {
+      ppyvec={};
+      for(i=0;i<stepsin;i++) ppyvec.push_back(targaccel[i][k]);
+      // Perform fit, and store in accelfit.
+      if(DEBUG>0) {
+	cout << "Running perfectpoly01LD with sizes " << ppxvec.size() << " and " << ppyvec.size() << "\n";
+	for(i=0;i<stepsin;i++) cout << "x = " << ppxvec[i] << ", y = " << ppyvec[i] << "\n";
+      }
+      perfectpoly01LD(ppxvec,ppyvec,ppfitvec);
+      for(i=0;i<stepsin;i++) accelfit[i][k] = ppfitvec[i];
+    }
+    // Re-calculate all of the positions and velocities using this fit.
+    for(j=1;j<=stepsin;j++) {
+      dt2 = (temptime[j]-temptime[0])*SOLARDAY;
+      // Positions
+      for(k=0;k<3;k++) targpos[j][k] = targpos[0][k] + targvel[0][k]*dt2;
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,2+i)*factorialLD(i)/factorialLD(2+i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) targpos[j][k] += accelfit[i][k]*timemult;
+      }
+      // Velocities
+      for(k=0;k<3;k++) targvel[j][k] = targvel[0][k];
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,1+i)/intpowLD(dt0,i)/((long double)(1+i));
+	for(k=0;k<3;k++) targvel[j][k] += accelfit[i][k]*timemult;
+      }
+      // Accelerations
+      for(k=0;k<3;k++) accelmod[j][k] = 0L;
+      for(i=0;i<stepsin;i++) {
+	timemult = intpowLD(dt2,i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) accelmod[j][k] += accelfit[i][k]*timemult;
+      }
+    }
+    // Re-calculate accelerations using these revised positions
+    for(j=1;j<=stepsin;j++) {
+      accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+j], targpos[j], targaccel[j]);
+    }
+  }
+
+  // We are now set up for a full-order polynomial integration.
+  // We have valid positions in targpos, targvel, and temptime
+  // for indices from 0 to polyorder+1.
+  if(DEBUG>0) cout << "Launching full-order polynomial integration, polyorder = " << polyorder << "\n";
+  // Load already calculated points into the output vectors
+  for(i=0;i<=polyorder+1;i++) {
+    if(i < outnum) {
+      for(k=0;k<3;k++) {
+	targ_statevecs[i][k] = targpos[i][k];
+	targ_statevecs[i][3+k] = targvel[i][k];
+      }
+    }
+  }
+  // Define the current reference point.
+  latestpoint=polyorder+1;
+  // Proceed with the full polynomial integration.
+  while(latestpoint < outnum-1) {
+    latestpoint++;
+    // Cycle the dynamical vectors
+    for(i=0;i<polyorder+1;i++) {
+      temptime[i] = temptime[i+1];
+      targaccel[i] = targaccel[i+1];
+      targvel[i] = targvel[i+1];
+      targpos[i] = targpos[i+1];
+    }
+    // Load a new point into temptime
+    temptime[polyorder+1] = outMJD[latestpoint];
+    // Fit for acceleration
+    ppxvec={};
+    for(i=0;i<polyorder+1;i++) ppxvec.push_back((temptime[i] - temptime[0])*SOLARDAY/dt0);
+    for(k=0;k<3;k++) {
+      ppyvec={};
+      for(i=0;i<polyorder+1;i++) ppyvec.push_back(targaccel[i][k]);
+      // Perform fit, and store in accelfit.
+      if(DEBUG>0) {
+	cout << "Running perfectpoly01LD with sizes " << ppxvec.size() << " and " << ppyvec.size() << "\n";
+	for(i=0;i<polyorder+1;i++) cout << "x = " << ppxvec[i] << ", y = " << ppyvec[i] << "\n";
+      }
+      perfectpoly01LD(ppxvec,ppyvec,ppfitvec);
+      for(i=0;i<polyorder+1;i++) accelfit[i][k] = ppfitvec[i];
+    }
+    // Re-calculate all of the positions and velocities using this fit.
+    for(j=1;j<=polyorder+1;j++) {
+      dt2 = (temptime[j]-temptime[0])*SOLARDAY;
+      // Positions
+      for(k=0;k<3;k++) targpos[j][k] = targpos[0][k] + targvel[0][k]*dt2;
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,2+i)*factorialLD(i)/factorialLD(2+i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) targpos[j][k] += accelfit[i][k]*timemult;
+      }
+      // Velocities
+      for(k=0;k<3;k++) targvel[j][k] = targvel[0][k];
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,1+i)/intpowLD(dt0,i)/((long double)(1+i));
+	for(k=0;k<3;k++) targvel[j][k] += accelfit[i][k]*timemult;
+      }
+      // Accelerations
+      for(k=0;k<3;k++) accelmod[j][k] = 0L;
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) accelmod[j][k] += accelfit[i][k]*timemult;
+      }
+    }
+    // Re-calculate accelerations using these revised positions
+    for(j=1;j<=polyorder+1;j++) {
+      accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+latestpoint+j-polyorder-1], targpos[j], targaccel[j]);
+    }
+    // Use these revised accelerations to re-do the fits
+    ppxvec={};
+    for(i=0;i<polyorder+1;i++) ppxvec.push_back((temptime[i] - temptime[0])*SOLARDAY/dt0);
+    for(k=0;k<3;k++) {
+      ppyvec={};
+      for(i=0;i<polyorder+1;i++) ppyvec.push_back(targaccel[i][k]);
+      // Perform fit, and store in accelfit.
+      if(DEBUG>0) {
+	cout << "Running perfectpoly01LD with sizes " << ppxvec.size() << " and " << ppyvec.size() << "\n";
+	for(i=0;i<polyorder+1;i++) cout << "x = " << ppxvec[i] << ", y = " << ppyvec[i] << "\n";
+      }
+      perfectpoly01LD(ppxvec,ppyvec,ppfitvec);
+      for(i=0;i<polyorder+1;i++) accelfit[i][k] = ppfitvec[i];
+    }
+    // Re-calculate all of the positions and velocities using this fit.
+    for(j=1;j<=polyorder+1;j++) {
+      dt2 = (temptime[j]-temptime[0])*SOLARDAY;
+      // Positions
+      for(k=0;k<3;k++) targpos[j][k] = targpos[0][k] + targvel[0][k]*dt2;
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,2+i)*factorialLD(i)/factorialLD(2+i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) targpos[j][k] += accelfit[i][k]*timemult;
+      }
+      // Velocities
+      for(k=0;k<3;k++) targvel[j][k] = targvel[0][k];
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,1+i)/intpowLD(dt0,i)/((long double)(1+i));
+	for(k=0;k<3;k++) targvel[j][k] += accelfit[i][k]*timemult;
+      }
+      // Accelerations
+      for(k=0;k<3;k++) accelmod[j][k] = 0L;
+      for(i=0;i<polyorder+1;i++) {
+	timemult = intpowLD(dt2,i)/intpowLD(dt0,i);
+	for(k=0;k<3;k++) accelmod[j][k] += accelfit[i][k]*timemult;
+      }
+    }
+    // Re-calculate accelerations using these revised positions
+    for(j=1;j<=polyorder+1;j++) {
+      accelcalc02LD(planetnum, planetmasses, planet_statevecs[startpoint+latestpoint+j-polyorder-1], targpos[j], targaccel[j]);
+      if(latestpoint+j-polyorder-1 < outnum) {
+	for(k=0;k<3;k++) {
+	  targ_statevecs[latestpoint+j-polyorder-1][k] = targpos[j][k];
+	  targ_statevecs[latestpoint+j-polyorder-1][3+k] = targvel[j][k];
+	}
+      }
+    }
+    // We have now gone through two iterations of extrapolation
+    // to predict the next acceleration point as accurately as possible.
+    // The next step of the loop will move the extrapolated point back
+    // by one step, and use it to start extrapolating a new point,
+    // at the same time refining the former extrapolated points.
+  }
+  return(0);
+}
+
+// integrate_statevec02LD: October 02, 2025
+// Attempts to duplicate the functionality of integrate_orbit05LD(), with
+// more flexible architecture: specifically, with state vectors stored
+// as regular long double vectors instead of more sophisticated classes.
+// Can handle both backward and forward integration. The initial
+// conditions provided in starting_statevec apply to refpoint.
+// If refpoint <= startpoint, the program will integrate only
+// forward. If refpoint>=endpoint, only backward integration will
+// be performed. If (as is expected to be the
+// normal case) startpoint < refpont < endpoint, both backward
+// and forward integration will be performed.
+int integrate_statevec02LD(int polyorder, int planetnum, const vector <long double> &planetmjd, const vector <long double> &planetmasses, const vector <vector <long double>> &planet_statevecs, const vector <long double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <long double> &outMJD,  vector <vector <long double>> &targ_statevecs)
+{
+  vector <vector <long double>> targaccel;
+  vector <vector <long double>> accelfit;
+  vector <vector <long double>> targpos;
+  vector <vector <long double>> targvel;
+  vector <vector <long double>> accelmod;
+  vector <long double> temptime;
+  vector <long double> ppxvec;
+  vector <long double> ppyvec;
+  vector <long double> ppfitvec;
+  vector <long double> accelslope;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = endpoint-startpoint+1;
+  int ref_subct=0;
+  
+  if(DEBUG>0) cout << "Inside integrate_statevec02LD()\n";
+
+  if(polyorder<2) {
+    cerr << "ERROR: integrate_statevec02LD called with polyorder = " << polyorder << "\n";
+    cerr << "polyorder must be at least 4!\n";
+    return(1);
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec02LD called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_statevec02LD called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec02LD called with reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: integrate_statevec02LD called with reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+  if(refpoint >= endpoint-polyorder-1) {
+    cerr << "ERROR: integrate_statevec02LD called with reference point " << refpoint << " too close to end point " << endpoint << "\n";
+    cerr << "to perform successful forward integration\n";
+    return(3);
+  }
+  if(refpoint <= startpoint+polyorder+1) {
+    cerr << "ERROR: integrate_statevec02LD called with reference point " << refpoint << " too close to start point " << startpoint << "\n";
+    cerr << "to perform successful backward integration\n";
+    return(3);
+  }
+
+  make_LDvec(outnum, outMJD);
+  make_LDmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  
+  // Calculate the entry corresponding to refpoint in the shorter,
+  // problem-specific vectors targ_statevecs and outMJD.
+  ref_subct = refpoint-startpoint;
+
+  if(refpoint<endpoint) {
+    // Perform forward integration
+    long forwardnum = endpoint-refpoint+1;
+    vector <long double> forwardMJD;
+    vector <vector <long double>> forward_statevecs;
+     integrate_statevec_LDFW01(polyorder, planetnum, planetmjd, planetmasses, planet_statevecs, starting_statevec, refpoint, endpoint, forwardMJD, forward_statevecs);
+    for(i=0;i<forwardnum;i++) targ_statevecs[ref_subct+i] = forward_statevecs[i];
+  }
+  if(refpoint>startpoint) {
+    // Perform a backward integration.
+    long backwardnum = refpoint-startpoint+1;
+    long backrefpoint = planetmjd.size()-1 - refpoint;
+    long backstartpoint = planetmjd.size()-1 - startpoint;
+    vector <vector <long double>> backward_statevecs;
+    vector <long double> backward_startvec;
+    vector <long double> backwardMJD;
+    vector <vector <long double>> backplanet_statevecs;
+    vector <long double> backplanetmjd;
+
+    // Copy the starting state vector into backward_startvec
+    backward_startvec = starting_statevec;
+    // Sign-flip the velocity
+    for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+    
+    // Copy planet vectors in reverse order
+    for(i=long(planetmjd.size()-1); i>=0; i--) {
+      backplanetmjd.push_back(-planetmjd[i]);
+      vector <long double> planetsonce;
+      for(j=0;j<planetnum;j++) {
+	// Position is copied verbatim
+	for(k=0;k<3;k++) planetsonce.push_back(planet_statevecs[i][6*j + k]);
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) planetsonce.push_back(-planet_statevecs[i][6*j + k]);
+      }
+      backplanet_statevecs.push_back(planetsonce);
+    }
+    
+    integrate_statevec_LDFW01(polyorder, planetnum, backplanetmjd, planetmasses, backplanet_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD, backward_statevecs);
+    for(i=0;i<backwardnum;i++) {
+      // Position is copied verbatim
+      for(k=0;k<3;k++) targ_statevecs[ref_subct-i][k] = backward_statevecs[i][k];
+      // Velocity requires a sign-flip
+      for(k=3;k<6;k++) targ_statevecs[ref_subct-i][k] = -backward_statevecs[i][k];
+    }
+  }
+  return(0);
+}
+
 // tortoisechi03: February 05, 2025
 // Get chi-square value for a full Newtonian orbit-fit with
 // planetary perturbations, etc, given input state vectors
@@ -22549,7 +23851,7 @@ int find_pairs3(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 
 #define OVLP_GRIDNUM 20
 
-//find_pairs4: July 28, 2025: Similar to findpairs3, but resolves conflicts
+//find_pairs4: July 31, 2025: Similar to find_pairs3, but resolves conflicts
 // between overlapping exclusive tracklets on a point-by-point basis, instead of
 // discarding the inferior tracklet of an overlapping pair in its entirety.
 int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose)
@@ -22662,7 +23964,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 	cerr << img_log[imct].RA << " " << img_log[imct].Dec << " " << detvec[detct].RA << " " << detvec[detct].Dec << " " << dist << " " << pa << " " << xyind.x << " " << xyind.x << "\n";
       }
     }
-    cout << "The " << axyvec.size() << " detections projected on image A have x and y ranges of " << minx << " to " << maxx << " and " << miny << " to " << maxy << "\n";
+    if(verbose>0) cout << "The " << axyvec.size() << " detections projected on image A have x and y ranges of " << minx << " to " << maxx << " and " << miny << " to " << maxy << "\n";
     // Create k-d tree of detections on image A (imct).
     dim=1;
     xyi = axyvec[0];
@@ -22774,7 +24076,9 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
       cerr << "ERROR: size mismatch in image overlap vector: " << imct << " " << image_overlap.size() << "\n";
       return(2);
     }
-    if(verbose>0) cout << amedian << " overlapping images found for image " << imct << "\n";
+    const auto system_time = chrono::system_clock::now();
+    const time_t realtime = chrono::system_clock::to_time_t(system_time);
+    cout << amedian << " overlapping images found for image " << imct << "; current time is " << ctime(&realtime) << "\n";
     // Close loop over images for image A
   }
   for(imct=0;imct<imnum;imct++) {
@@ -22782,7 +24086,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
     if(local_mintrkpts < min_tracklet_points) local_mintrkpts = min_tracklet_points;
     cout << "Image " << imct << ": overlaps " << image_overlap[imct] << " total images: min tracklet length is " << local_mintrkpts << "\n";
   }
-  
+
   // NEW LOOPS THAT ACTUALLY MAKE THE TRACKLETS
   // Loop over images for image A
   for(imct=0;imct<imnum;imct++) {
@@ -22826,6 +24130,9 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
       }
     }
     cout << "Creating tracklets that start on image " << imct << " of " << imnum << ", which has " << axyvec.size() << " good detections and min tracklet length = " << local_mintrkpts << "\n";
+    const auto system_time = chrono::system_clock::now();
+    const time_t realtime = chrono::system_clock::to_time_t(system_time);
+    cout << "Current time is " << ctime(&realtime) << "\n";
     if(verbose>0) cout << axyvec.size() << " detections successfully projected; " << imatchnum << " potentially matching images will be explored\n";
     if(imatchnum >= local_mintrkpts-1 && axyvec.size()>0) {
       // There are enough matching images to create tracklets of at least the minimum length,
@@ -22910,7 +24217,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 	      // Write it out to the tracklet matrix Atrkmat
 	      Atrkmat.push_back(Atrkvec);
 	    }
-	    // Close loop on intervening images
+	    // Close loop over potentially matching detections on image B
 	  }
 	  // Close loop over all possible image B's
 	}
@@ -22961,7 +24268,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 	    return(4);
 	  }
 	  GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
-	  if(!isnormal(GCR)) {
+	  if(!isnormal(GCR) && GCR!=0.0) {
 	    cerr << "ERROR: GCR = " << GCR << "\n";
 	    cout << "Offending tracklet:\n";
 	    for(i=0;i<long(Atrkmat[tct].size());i++) {
@@ -22982,7 +24289,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 	  if(verbose>1) {
 	    cout << "Initial tracklet:\n";
 	    for(i=0;i<long(Atrkmat[tct].size());i++) {
-	      cout << "point " << i << ": " << trkdets[i].image << " "  << trkdets[i].MJD << " "  << trkdets[i].RA << " "  << trkdets[i].Dec << " "  << trkdets[i].index << "\n"; 
+	      cout << fixed << setprecision(6) << "point " << i << ": " << trkdets[i].image << " "  << trkdets[i].MJD << " "  << trkdets[i].RA << " "  << trkdets[i].Dec << " "  << trkdets[i].index << "\n"; 
 	    }
 	  }
 	  // Reject time-duplicates and outliers
@@ -23320,7 +24627,8 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 		  // This detection has previously been used in an exclusive tracklet.
 		  // This earlier, exclusive tracklet supersedes the
 		  // current two-point tracklet: skip (i.e., reject) the current tracklet
-		  continue;
+		  cerr << "ERROR: two-point tracklet found to overlap after check\n";
+		  return(26);
 		}
 	      }
 	      // End case of tracklet with only two points.
@@ -23660,7 +24968,7 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
 		  }
 		  // Mark detection i as having been used in an exclusive tracklet
 		  det2trk[Atrkmat2[btrk][i]] = track1.trk_ID;
-		  if(verbose>0) cout << "new tracklet point: " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		  if(verbose>0) cout << fixed << setprecision(6) << "new tracklet point: " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
 		}
 		if(bad_reuse>0) {
 		  cerr << "WARNING 13: " << bad_reuse << " attempts to use an already-excluded point, tct = " << tct << " of " << best_trk.size() << ", btrk = " << btrk << "\n";
@@ -23742,12 +25050,1303 @@ int find_pairs4(vector <hldet> &detvec, const vector <hlimage> &img_log, vector 
     }
     // End loop giving each image a chance to be image A
   }
-  cout << "Exiting find_pairs4 with " << forbidden_reuses << " nominally forbidden re-uses of points from exclusive tracklets\n";
-  cout << fixed << setprecision(6) << "This is probably benign, since it is only " << double(forbidden_reuses)/double(trk2det.size()) << " of all tracklet points\n";
+
+  cout << "Exiting find_pairs4 with " << forbidden_reuses << " forbidden re-uses of points from exclusive tracklets\n";
   cout << "Vector sizes: pairdets = " << pairdets.size() << "  trk2det = " << trk2det.size() << "  tracklets = " << tracklets.size() << "\n";
   return(0);
 }
 
+int delete_trkpts01(vector <hldet> &detvec, vector <hldet> &pairdets, vector <longpair> &trk2det, vector <long> &det2trk, vector <tracklet> &tracklets, const vector <long> &tracklets_min_length, vector <double> &tracklet_metrics, vector <vector <long>> &tracklet_indexmat, double overmetric, const vector <long> &erase_trkdetind, vector <long> &erase_trkindind, long overtrk, long max_netl, vector <hldet> &trimmed_overtrk, long trp1, long trp2, const vector <double> &tfitRA, const vector <double> &tfitDec, int verbose)
+{
+  long erasenum = erase_trkdetind.size();
+  long i=0;
+  long trimmed_overlen = trimmed_overtrk.size();
+  tracklet track1 = tracklet(0,0.0l,0.0l,0,0.0l,0.0l,0,0);
+  
+  // Re-assign detvec indices and det2trk entries
+  for(i=0;i<erasenum;i++) {
+    if(detvec[pairdets[erase_trkdetind[i]].index].index > 0){
+      // This detection was previously marked as exclusive. Let it still
+      // index pairdets, but change the sign to negative, making it non-exclusive.
+      detvec[pairdets[erase_trkdetind[i]].index].index *= -1;
+    } else if(detvec[pairdets[erase_trkdetind[i]].index].index < 0) {
+      cerr << "Detection " << pairdets[erase_trkdetind[i]].index << " assigned to exclusive tracklet " << overtrk << ", had negative index" << detvec[pairdets[erase_trkdetind[i]].index].index << "\n";
+      return(1);
+      // Note: there is nothing to do here in the case detvec[pairdets[erase_trkdetind[i]].index].index==0, since sign-flipping it has no effect.
+      // Hence, the meaning of detvec[xxx].index in that one case is ambiguous, but this should not cause any problems.
+    }
+    // Erase exclusive tracklet attribution from the vector det2trk.
+    det2trk[pairdets[erase_trkdetind[i]].index] = -1;
+  }
+  if(trimmed_overlen <= max_netl) {
+    // Post-trimming, tracklet is no longer exclusive. Update detvec[xxx].index and det2trk to reflect this
+    for(i=0;i<trimmed_overlen;i++) {
+      if(detvec[trimmed_overtrk[i].index].index > 0) {
+	// This detection was previously marked as exclusive. Let it still
+	// index pairdets, but change the sign to negative, making it non-exclusive.
+	detvec[trimmed_overtrk[i].index].index *= -1;
+      } else if(detvec[trimmed_overtrk[i].index].index < 0) {
+	cerr << "Detection " << trimmed_overtrk[i].index << " assigned to exclusive tracklet " << overtrk << ", had negative index" << detvec[pairdets[erase_trkdetind[i]].index].index << "\n";
+	return(2);
+	// Note: there is nothing to do here in the case detvec[trimmed_overtrk[i].index].index==0, since sign-flipping it has no effect.
+	// Hence, the meaning of detvec[xxx].index in that one case is ambiguous, but this should not cause any problems.
+      }
+      // Erase exclusive tracklet attribution from the vector det2trk.
+      det2trk[trimmed_overtrk[i].index] = -1;
+    }
+  }
+
+  // Update tracklet entry
+  if(trimmed_overlen==2) {
+    track1 = tracklet(trimmed_overtrk[0].image,trimmed_overtrk[0].RA,trimmed_overtrk[0].Dec,trimmed_overtrk[1].image,trimmed_overtrk[1].RA,trimmed_overtrk[1].Dec,trimmed_overlen,tracklets[overtrk].trk_ID);
+    if(tracklets_min_length[overtrk]>2) {
+      cerr << "ERROR: writing trimmed tracklet of length 2 when this should be forbidden\n";
+      return(3);
+    }
+  } else if(trimmed_overlen>2) track1 = tracklet(trimmed_overtrk[trp1].image,tfitRA[trp1],tfitDec[trp1],trimmed_overtrk[trp2].image,tfitRA[trp2],tfitDec[trp2],trimmed_overlen,tracklets[overtrk].trk_ID);
+  tracklets[overtrk] = track1;
+  // Update tracklet_indexmat entry
+  tracklet_indexmat[overtrk]={};
+  for(i=0;i<trimmed_overlen;i++) {
+    tracklet_indexmat[overtrk].push_back(trimmed_overtrk[i].index);
+  }
+  // Update corresponding entry in tracklet_metrics.
+  tracklet_metrics[overtrk] = overmetric;
+  // No need to updatetracklets_min_length, nor to renumber entries in the tracklets vector
+  // Delete trk2det entries, in reverse order
+  sort(erase_trkindind.begin(),erase_trkindind.end());
+  for(i=long(erase_trkindind.size())-1; i>=0; i--) {
+    if(verbose>1) cout << "Erasing trk2det entry " << trk2det[erase_trkindind[i]].i1 << " " << trk2det[erase_trkindind[i]].i2 << "\n";
+    trk2det.erase(trk2det.begin()+erase_trkindind[i]);
+  }
+  // No need to re-number subsequent entries in trk2det vector, nor in the det2trk vector
+  return(0);
+}
+
+// find_repdets: August 18, 2025:
+// Find a set of representative detections spanning a whole image
+int find_repdets(const vector <hldet> &imdetvec, double RA, double Dec, vector <hldet> &repdetvec, int verbose)
+{
+  long imdetnum = imdetvec.size();
+  xy_index xyind=xy_index(0.0, 0.0, 0);
+  vector <xy_index> xyvec = {};
+  vector <xy_index> repxyvec = {};
+  double minx,miny,maxx,maxy,dist,pa;
+  int dim=1;
+  xy_index xyi = xy_index(0.0, 0.0, 0);
+  kdpoint root = kdpoint(xyi,-1,-1,dim);
+  vector <kdpoint> kdvec ={};
+  long detct,medpt,dettarg,i,j,bestpoint;
+  detct = medpt = dettarg = i = j = bestpoint = 0;
+
+  repdetvec={};
+  
+  // Project all the detections on this image, and find the min and max projected coordinates
+  xyind=xy_index(0.0, 0.0, 0);
+  xyvec = {};
+  dist=pa=0.0;
+  dettarg=0;
+  minx = miny = LARGERR2;
+  maxx = maxy = -LARGERR2;
+  for(detct=0 ; detct<imdetnum ; detct++) {
+    distradec02(RA, Dec,imdetvec[detct].RA,imdetvec[detct].Dec,&dist,&pa);
+    xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),detct);
+    xyvec.push_back(xyind);
+    if(xyind.x > maxx) maxx=xyind.x;
+    if(xyind.y > maxy) maxy=xyind.y;
+    if(xyind.x < minx) minx=xyind.x;
+    if(xyind.y < miny) miny=xyind.y;
+    if((!isnormal(xyind.x) && xyind.x!=0) || (!isnormal(xyind.y) && xyind.y!=0)) {
+      cerr << "nan-producing input: ra1, dec1, ra2, dec2, dist, pa:\n";
+	cerr << RA << " " << Dec << " " << imdetvec[detct].RA << " " << imdetvec[detct].Dec << " " << dist << " " << pa << " " << xyind.x << " " << xyind.x << "\n";
+      }
+  }
+  if(verbose>0) cout << "The " << xyvec.size() << " detections projected on image A have x and y ranges of " << minx << " to " << maxx << " and " << miny << " to " << maxy << "\n";
+  // Create k-d tree of detections on this image.
+  dim=1;
+  xyi = xyvec[0];
+  root = kdpoint(xyi,-1,-1,dim);
+  kdvec ={};
+  medpt=bestpoint=0;
+  dist=LARGERR;
+  medpt = medindex(xyvec,dim);
+  root = kdpoint(xyvec[medpt],-1,-1,1);
+  kdvec.push_back(root);
+  kdtree01(xyvec,dim,medpt,0,kdvec);
+    
+  // Find representative detections spanning the whole area of image imct (image A)
+  repdetvec={};
+  double gridrad = (maxx-minx)/double(OVLP_GRIDNUM);
+  if(gridrad < (maxy-miny)/double(OVLP_GRIDNUM)) gridrad = (maxy-miny)/double(OVLP_GRIDNUM);
+  gridrad/=sqrt(2.0); // Center-to-corner distance of a grid square
+  for(i=0;i<OVLP_GRIDNUM;i++) {
+    double x = minx + (maxx-minx)*(double(i)+0.5)/double(OVLP_GRIDNUM);
+    for(j=0;j<OVLP_GRIDNUM;j++) {
+      double y = miny + (maxy-miny)*(double(j)+0.5)/double(OVLP_GRIDNUM);
+      bestpoint = kdnearest01(kdvec,x,y);
+      dist = sqrt(DSQUARE(x - kdvec[bestpoint].point.x) + DSQUARE(y - kdvec[bestpoint].point.y));
+      if(dist<=gridrad) {
+	// There is a point in image A that is close enough to gridpoint x,y to
+	// be a good representative thereof.
+	repdetvec.push_back(imdetvec[kdvec[bestpoint].point.index]);
+      }
+    }
+  }
+  return(0);
+}
+		 
+// calculate_overlap: August 18, 2025:
+// Calculate the overlap in a set of images.
+int calculate_overlap(const vector <hldet> &detvec, const vector <hlimage> &img_log, double mintime, double maxtime, double maxvel, double imrad, double matchrad, vector <int> &image_overlap, int verbose)
+{
+  long imnum = img_log.size();
+  long imct,detct,imdetnum;
+  imct = detct = imdetnum = 0;
+  vector <hldet> imdetvec;
+  vector <hldet> repdetvec;
+  vector <vector <hldet>> repdetmat;
+  xy_index xyind=xy_index(0.0, 0.0, 0);
+  vector <xy_index> axyvec = {};
+  vector <xy_index> bxyvec = {};
+  vector <xy_index> repxyvec = {};
+  double dist,pa;
+  int dim=1;
+  int status=0;
+  xy_index xyi = xy_index(0.0, 0.0, 0);
+  kdpoint root = kdpoint(xyi,-1,-1,dim);
+  vector <kdpoint> kdvec ={};
+  long medpt,bestpoint,imtarg,dettarg;
+  medpt = bestpoint = imtarg = dettarg = 0;
+
+  // Loop over all images, identifying a representative subset of detections for each image.
+  for(imct=0;imct<imnum;imct++) {
+    if(verbose>0) cout << "Representative detection loop considering image " << imct << " of " << imnum << "\n";
+    if(img_log[imct].endind<=0 || img_log[imct].endind<=img_log[imct].startind) continue; // No detections on this image.
+    // Load all the detections on this image into the vector imdevec.
+    imdetvec={};
+    for(detct=img_log[imct].startind ; detct<img_log[imct].endind ; detct++) imdetvec.push_back(detvec[detct]);
+    // Find a representative subset of all detections on this image
+    status = find_repdets(imdetvec,img_log[imct].RA,img_log[imct].Dec,repdetvec,verbose);
+    if(verbose>1) {
+      for(detct=0;detct<long(repdetvec.size());detct++) {
+	cout << "Image " << imct << " repdet " << detct << " " << repdetvec[detct].RA << " " << repdetvec[detct].Dec << " " << img_log[imct].RA << " " << img_log[imct].Dec << "\n";
+      }
+    }
+    if(status!=0) {
+      cerr << "ERROR: find_repdets() exited with error status " << status << "\n";
+      return(status);
+    }
+    imdetnum = repdetvec.size();
+    if(imdetnum<=0) {
+      cerr << "ERROR: no representative detections found for image " << imct << "\n";
+      return(1);
+    } else if(verbose>0) cout << imdetnum << " representative detections, out of " << OVLP_GRIDNUM*OVLP_GRIDNUM << " geometrically possible, identified on image A\n";
+    repdetmat.push_back(repdetvec);
+  }
+  // Loop over all images, determining the effective number of overlapping
+  // images in each case.
+  // Loop over images for image A
+  for(imct=0;imct<imnum;imct++) {
+    if(verbose>0) cout << "Initial loop considering image " << imct << " of " << imnum << "\n";
+    repdetvec = repdetmat[imct];
+    imdetnum = repdetvec.size();
+    if(verbose>0) cout << "Image " << imct << " has " << imdetnum << " representative detections\n";
+    // Project all the representative detections on image A.
+    xyind=xy_index(0.0, 0.0, 0);
+    repxyvec = {};
+    dist=pa=0.0;
+    dettarg=0;
+    for(detct=0; detct<long(repdetvec.size()) ; detct++) {
+      distradec02(img_log[imct].RA, img_log[imct].Dec,repdetvec[detct].RA,repdetvec[detct].Dec,&dist,&pa);
+      xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),detct);
+      repxyvec.push_back(xyind);
+    }
+
+    // Create a vector of zeros with this number of entries,
+    // to store all overlapping images
+    vector <int> detection_matches;
+    make_ivec(imdetnum, detection_matches);
+    // Loop over potential image B's
+    for(imtarg=0;imtarg<imnum;imtarg++) {
+      //cout << "probing match between images " << imct << " and " << imtarg << "\n";
+      // Calculate the boresight center-to-center distance between images A (imct) and B (imtarg)
+      double imcendist = distradec01(img_log[imct].RA, img_log[imct].Dec, img_log[imtarg].RA, img_log[imtarg].Dec);
+      // Calculate the number of representative detections on image B
+      repdetvec = repdetmat[imtarg];
+      long targdetnum = repdetvec.size();
+      // Calculate the time difference between the two images
+      double timediff = fabs(img_log[imtarg].MJD - img_log[imct].MJD);
+      if(imtarg!=imnum && targdetnum>0 && timediff>=mintime && timediff<=maxtime && imcendist<2.0*imrad+maxvel*timediff) {
+	//cout << "Matches are possible, ";
+	// Image B is close enough in time and on the sky
+	// Project all the detections on image B 
+	bxyvec = {};
+	// Project all detections on image B
+	for(dettarg=0 ; dettarg<targdetnum ; dettarg++) {
+	  distradec02(img_log[imct].RA, img_log[imct].Dec,repdetvec[dettarg].RA,repdetvec[dettarg].Dec,&dist,&pa);
+	  xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),dettarg);
+	  bxyvec.push_back(xyind);
+	}
+	//cout << bxyvec.size() << " detections projected for image B\n";
+	// Create k-d tree of detections on image B (imtarg).
+	dim=1;
+	xyi = bxyvec[0];
+	root = kdpoint(xyi,-1,-1,dim);
+	kdvec ={};
+	medpt=bestpoint=0;
+	dist=LARGERR;
+	medpt = medindex(bxyvec,dim);
+	root = kdpoint(bxyvec[medpt],-1,-1,1);
+	kdvec.push_back(root);
+	kdtree01(bxyvec,dim,medpt,0,kdvec);
+	// Loop over detections on image A
+	for(detct=0 ; detct<imdetnum ; detct++) {
+	  dist=LARGERR;
+	  if((isnormal(repxyvec[detct].x) || repxyvec[detct].x==0) && (isnormal(repxyvec[detct].y) || repxyvec[detct].y==0)) {
+	     bestpoint = kdnearest01(kdvec,repxyvec[detct].x,repxyvec[detct].y);
+	     dist = sqrt(DSQUARE(repxyvec[detct].x - kdvec[bestpoint].point.x) + DSQUARE(repxyvec[detct].y - kdvec[bestpoint].point.y));
+	  } else {
+	    cerr << "WARNING: calculate_overlap() finds detection " << detct << " on image " << imct << " not normal: " << repxyvec[detct].x << " " << repxyvec[detct].y << " RA, Dec: " << repdetvec[detct].RA << " " << repdetvec[detct].Dec << " image center: " << img_log[imct].RA << " " <<  img_log[imct].Dec << "\n";
+	  }
+	  if(dist<=matchrad) detection_matches[detct] += 1;
+	  // Close loop over detections on source image (image A)
+	}
+	// Close if-statement checking if image B could match image A
+      }
+      // Close loop over all possible image B's
+    }
+    for(detct=0; detct<imdetnum; detct++) {
+      if(verbose>1) cout << "representative x,y,depth: " << repxyvec[detct].x << " " << repxyvec[detct].y << " " << detection_matches[detct] << "\n";
+    }
+    // Find the median of the number of matches for detections on image A
+    int amedian=0;
+    sort(detection_matches.begin(),detection_matches.end());
+    if(detection_matches.size()%2 == 1) {
+      // Odd number, a perfect median exists
+      amedian=detection_matches[(detection_matches.size()-1)/2];
+    }
+    else {
+      // Even number, take the high side of the median
+      amedian=detection_matches[detection_matches.size()/2];
+    }
+    // Load newly calculate median into the image_overlap vectors
+    image_overlap.push_back(amedian);
+    if(imct+1 != int(image_overlap.size())) {
+      cerr << "ERROR: size mismatch in image overlap vector: " << imct << " " << image_overlap.size() << "\n";
+      return(2);
+    }
+    const auto system_time = chrono::system_clock::now();
+    const time_t realtime = chrono::system_clock::to_time_t(system_time);
+    cout << amedian << " overlapping images found for image " << imct << "; current time is " << ctime(&realtime) << "\n";
+    // Close loop over images for image A
+  }
+  return(0);
+}
+
+
+//find_pairs5: August 11, 2025: Like find_pairs4, but uses a separate function to delete
+// individual points of overlapping tracklets that can still survive. Intended to make
+// time-profiling easier.
+int find_pairs5(vector <hldet> &detvec, const vector <hlimage> &img_log, vector <hldet> &pairdets, vector <tracklet> &tracklets, vector <longpair> &trk2det, int min_tracklet_points, int max_netl, double mintime, double maxtime, double imagetimetol, double imrad, double minvel, double maxvel, double minarc, double matchrad, double trkfrac, double maxgcr, int verbose)
+{
+  cout << "Inside find_pairs5\n";
+  long detnum = detvec.size();
+  if(detnum<=0) {
+    cerr << "ERROR: find_pairs5 called with no input detections\n";
+    return(1);
+  }
+  int imnum = img_log.size();
+  int imct=0;
+  long detct=0;
+  long pdct=0; // count of detections that have been paired
+  xy_index xyind=xy_index(0.0, 0.0, 0);
+  vector <xy_index> axyvec = {};
+  vector <xy_index> bxyvec = {};
+  vector <long> indexvec;
+  vector <long> indexvec2;
+  long dettarg=0;
+  longpair onepair = longpair(0,0);
+  vector <int> image_overlap;
+  long i = 0;
+  long j = 0;
+  double range,timeA,timeB,xA,xB,yA,yB,xpred,ypred,timepred;
+  range = timeA = timeB = xA = xB = yA = yB = xpred = ypred = timepred = 0.0;
+  vector <hldet> trkdets;
+  vector <long> Atrkvec;
+  vector <vector <long>> Atrkmat;
+  vector <vector <long>> Atrkmat2;
+  vector <double> residuals;
+  vector <double> fitRA;
+  vector <double> fitDec;
+  tracklet track1 = tracklet(0,0.0l,0.0l,0,0.0l,0.0l,0,0);
+  int status,instep,rp1,rp2;
+  status=instep=rp1=rp2=0;
+  vector <long> overlapping_tracklets;
+  int bad_reuse=0;
+  long forbidden_reuses = 0;
+  vector <double> tracklet_metrics;
+  vector <long> det2trk;
+  vector <long> tracklets_min_length;
+  vector <vector <long>> tracklet_indexmat;
+  hldet onedet = hldet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, "null", "V", "500", 0, 0, 0);
+  vector <long> trkdetind;
+  vector <long> trkindind;
+  vector <long> ivec;
+  long bad_reuse_example=0;
+  int isgood = 0;
+  double this_trkmetric = 0.0;
+  int superior_overlap=0;
+  double poleRA,poleDec,angvel,dist,pa,crosstrack,alongtrack,GCR,overmetric;
+  poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = overmetric = 0.0;
+  double tpoleRA,tpoleDec,tangvel,tpa,tcrosstrack,talongtrack,tGCR,tdist;
+  tpoleRA = tpoleDec = tangvel = tpa = tcrosstrack = talongtrack = tGCR = tdist = 0;
+  vector <double> tfitRA;
+  vector <double> tfitDec;
+  vector <double> tresiduals;
+  long trp1,trp2;
+  trp1 = trp2 = 0;
+  int local_mintrkpts = 2;
+  int first_point_overlap = 0;
+  
+  pairdets={};
+  tracklets={};
+  trk2det={};
+  
+  // Mark all detections as unpaired and available using index = -detnum-2
+  // Also, load det2trk with a vector of -1s, to indicate no
+  // detections are yet in an exclusive tracklet.
+  for(detct=0;detct<detnum;detct++) {
+    detvec[detct].index = -detnum - 2;
+    det2trk.push_back(-1);
+  }
+
+  status = calculate_overlap(detvec, img_log, mintime, maxtime, maxvel, imrad, matchrad, image_overlap, verbose);
+  if(status!=0) {
+    cerr << "ERROR: calculate_overlap() returned with error status " << status << "\n";
+    return(status);
+  }
+  for(imct=0;imct<imnum;imct++) {
+    local_mintrkpts = double(image_overlap[imct])*trkfrac + 0.5;
+    if(local_mintrkpts < min_tracklet_points) local_mintrkpts = min_tracklet_points;
+    cout << "Image " << imct << ": overlaps " << image_overlap[imct] << " total images: min tracklet length is " << local_mintrkpts << "\n";
+  }
+
+  // NEW LOOPS THAT ACTUALLY MAKE THE TRACKLETS
+  // Loop over images for image A
+  for(imct=0;imct<imnum;imct++) {
+    // Set minimum tracklet length appropriate for this image
+    local_mintrkpts = double(image_overlap[imct])*trkfrac + 0.5;
+    if(local_mintrkpts < min_tracklet_points) local_mintrkpts = min_tracklet_points;
+    if(img_log[imct].endind<=0 || img_log[imct].endind<=img_log[imct].startind) continue; // No detections on this image.
+    timeA = img_log[imct].MJD;
+    // See if there are any images that might match
+    vector <int> imagematches = {};
+    int imatchcount = 0;
+    int imtarg=imct+1;
+    while(imtarg<imnum && img_log[imtarg].MJD < img_log[imct].MJD + maxtime) {
+      timeB = img_log[imtarg].MJD;
+      double timediff = timeB - timeA;
+      if(!isnormal(timediff) || timediff<0.0) {
+	cerr << "WARNING: Negative time difference " << timediff << " encountered between images " << imct << " and " << imtarg << "\n";
+      }
+      // See if the images are close enough on the sky.
+      double imcendist = distradec01(img_log[imct].RA, img_log[imct].Dec, img_log[imtarg].RA, img_log[imtarg].Dec);
+      if(imcendist<2.0*imrad+maxvel*timediff && timediff>=mintime && img_log[imtarg].endind>0 && img_log[imtarg].endind>img_log[imtarg].startind) {
+	if(DEBUG>=1) cout << "  pairs may exist between images " << imct << " and " << imtarg << ": dist = " << imcendist << ", timediff = " << timediff << "\n";
+	imagematches.push_back(imtarg);
+      }
+      imtarg++;
+    }
+    if(verbose>0) cout << "Looking for pairs for image " << imct << ": " << imagematches.size() << " later images are worth searching\n";
+    int imatchnum = imagematches.size();
+    // Project all the detections on image A.
+    xyind=xy_index(0.0, 0.0, 0);
+    axyvec = {};
+    dist=pa=0.0;
+    dettarg=0;
+    for(detct=img_log[imct].startind ; detct<img_log[imct].endind ; detct++) {
+      distradec02(img_log[imct].RA, img_log[imct].Dec,detvec[detct].RA,detvec[detct].Dec,&dist,&pa);
+      xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),detct);
+      axyvec.push_back(xyind);
+      if((!isnormal(xyind.x) && xyind.x!=0) || (!isnormal(xyind.y) && xyind.y!=0)) {
+	cerr << "nan-producing input: ra1, dec1, ra2, dec2, dist, pa:\n";
+	cerr << img_log[imct].RA << " " << img_log[imct].Dec << " " << detvec[detct].RA << " " << detvec[detct].Dec << " " << dist << " " << pa << " " << xyind.x << " " << xyind.x << "\n";
+      }
+    }
+    cout << "Creating tracklets that start on image " << imct << " of " << imnum << ", which has " << axyvec.size() << " good detections and min tracklet length = " << local_mintrkpts << "\n";
+    const auto system_time = chrono::system_clock::now();
+    const time_t realtime = chrono::system_clock::to_time_t(system_time);
+    cout << "Current time is " << ctime(&realtime) << "\n";
+    if(verbose>0) cout << axyvec.size() << " detections successfully projected; " << imatchnum << " potentially matching images will be explored\n";
+    if(imatchnum >= local_mintrkpts-1 && axyvec.size()>0) {
+      // There are enough matching images to create tracklets of at least the minimum length,
+      // and there are valid unpaired detections on image A: proceed with the search.
+      // Construct vector kdmat, holding k-d trees for
+      // all of the potentially matching images (image B's)
+      vector <vector <kdpoint>> kdmat = {};
+      for(imatchcount=0;imatchcount<imatchnum;imatchcount++) {
+      	imtarg = imagematches[imatchcount];
+	vector <xy_index> bxyvec = {};
+	// Project all detections on image B
+	for(dettarg=img_log[imtarg].startind ; dettarg<img_log[imtarg].endind ; dettarg++) {
+	  distradec02(img_log[imct].RA, img_log[imct].Dec,detvec[dettarg].RA,detvec[dettarg].Dec,&dist,&pa);
+	  xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),dettarg);
+	  bxyvec.push_back(xyind);
+	}
+	// Create k-d tree of detections on image B (imtarg).
+	vector <kdpoint> kdvec ={};
+	if(bxyvec.size()<=0) {
+	  // No valid detections in image B. Load dummy k-d vector
+	  kdmat.push_back(kdvec);
+	  // Skip to the next image
+	  continue;
+	}
+	int dim=1;
+	xy_index xyi = bxyvec[0];
+	kdpoint root = kdpoint(xyi,-1,-1,dim);
+	long medpt;
+	medpt = medindex(bxyvec,dim);
+	root = kdpoint(bxyvec[medpt],-1,-1,1);
+	kdvec.push_back(root);
+	kdtree01(bxyvec,dim,medpt,0,kdvec);
+	kdmat.push_back(kdvec);
+      }
+      // Loop over detections on image A
+      for(detct=0 ; detct<long(axyvec.size()) ; detct++) {
+	xA = axyvec[detct].x;
+	yA = axyvec[detct].y;
+	if((!isnormal(xA) && xA!=0.0) || (!isnormal(yA) && yA!=0.0)) continue;
+	// Declare vectors that will hold all possible tracklets that
+	// start with detection detct on image A.
+	Atrkvec = {};
+	Atrkmat = {}; 
+	// Loop over the image B's in reverse order, until we are so close
+	// to image A that no more tracklets of sufficient length are possible
+	for(imatchcount=imatchnum-1;imatchcount>=local_mintrkpts-2;imatchcount--) {
+	  if(kdmat[imatchcount].size()<=0) continue; // k-d tree for this image was empty.
+	  imtarg = imagematches[imatchcount];
+	  timeB = img_log[imtarg].MJD;
+	  range = (timeB-timeA)*maxvel;
+	  indexvec={};
+	  kdrange01(kdmat[imatchcount],xA,yA,range,indexvec);
+	  int matchnum=indexvec.size();
+	  // Loop over potentially matching detections on image B
+	  int matchct=0;
+	  for(matchct=0; matchct<matchnum; matchct++) {
+	    // Load original detection indices corresponding to detection detct on image A and
+	    // detection matchct on image B into a vector where we will try to build up a longer tracklet.
+	    Atrkvec={};
+	    Atrkvec.push_back(axyvec[detct].index);
+	    Atrkvec.push_back(kdmat[imatchcount][indexvec[matchct]].point.index);
+	    xB = kdmat[imatchcount][indexvec[matchct]].point.x;
+	    yB = kdmat[imatchcount][indexvec[matchct]].point.y;
+	    // Loop over all intervening images
+	    for(long imtct=0;imtct<imatchcount;imtct++) {
+	      // Consider a line from detection detct on image A,
+	      // to detection matchpt on image B. Use linear interpolation
+	      // to predict the position along this line for a source on
+	      // image imtct.
+	      timepred = img_log[imagematches[imtct]].MJD;
+	      xpred = xA + (xB-xA)*(timepred-timeA)/(timeB-timeA);
+	      ypred = yA + (yB-yA)*(timepred-timeA)/(timeB-timeA);
+	      indexvec2={};
+	      kdrange01(kdmat[imtct],xpred,ypred,maxgcr/1800.0,indexvec2);
+	      for(i=0;i<long(indexvec2.size());i++) {
+		// Load the new, matching detections into the vector Atrkvec.
+		Atrkvec.push_back(kdmat[imtct][indexvec2[i]].point.index);
+	      }
+	    }
+	    if(long(Atrkvec.size()) >= local_mintrkpts) {
+	      // Atrkvec contains indices to a potentially valid tracklet.
+	      // Write it out to the tracklet matrix Atrkmat
+	      Atrkmat.push_back(Atrkvec);
+	    }
+	    // Close loop over potentially matching detections on image B
+	  }
+	  // Close loop over all possible image B's
+	}
+	// Now, Atrkmat contains all possible tracklets that involve
+	// detection detct on image A. Clean them for duplicates, outliers, and
+	// overlaps with superioer tracklets; load them into Atrkmat2, and load the 
+	// vector best_trk with quality metrics that enable the next loop to investigate them
+	// in order from best to worst.
+	double_index di = double_index(0.0,0);
+	vector <double_index> best_trk;
+	Atrkmat2 = {}; 
+	for(long tct=0; tct<long(Atrkmat.size()); tct++) {
+	  if(long(Atrkmat[tct].size())==2) {
+	    // This is only a two-point tracklet: no point in calculating GCR.
+	    // Calculate arc length and angular velocity
+	    dist = distradec01(detvec[Atrkmat[tct][0]].RA, detvec[Atrkmat[tct][0]].Dec, detvec[Atrkmat[tct][1]].RA, detvec[Atrkmat[tct][1]].Dec);
+	    angvel = dist/fabs(detvec[Atrkmat[tct][1]].MJD - detvec[Atrkmat[tct][0]].MJD);
+	    dist*=3600.0;
+	    if(angvel<minvel || angvel>maxvel || dist<minarc) continue; // Velocity is out-of-range: skip this one
+	    // Final check: does the tracklet overlap an earlier exclusive one?
+	    if(det2trk[Atrkmat[tct][0]] >= 0 || det2trk[Atrkmat[tct][1]] >= 0) continue; // Reject the tracklet because of overlap
+	    // If we get here, the tracklet appears OK: load it
+	    Atrkmat2.push_back(Atrkmat[tct]);
+	    // Store quality metric, set to 1.0 for two-point tracklets
+	    this_trkmetric = 1.0;
+	    GCR=0.0;
+	    di = double_index(this_trkmetric,Atrkmat2.size()-1);
+	    best_trk.push_back(di);
+	    continue;
+	  } else if(long(Atrkmat[tct].size())<2) {
+	    cerr << "ERROR: stored a tracklet of size " << Atrkmat[tct].size() << "\n";
+	    return(3); // Later, change this to a continue, for robustness
+	  }
+	  trkdets={};
+	  for(i=0;i<long(Atrkmat[tct].size());i++) {
+	    hldet tdet = detvec[Atrkmat[tct][i]];
+	    tdet.index = Atrkmat[tct][i];
+	    trkdets.push_back(tdet);
+	  }
+	  // Sort trkdets
+	  sort(trkdets.begin(), trkdets.end(), early_hldet());
+	  // Great Circle fit
+	  fitRA = fitDec = residuals = {};
+	  poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = this_trkmetric = 0.0;
+	  status =  greatcircresid(trkdets,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+	  if(status!=0) {
+	    cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+	    return(4);
+	  }
+	  GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
+	  if(!isnormal(GCR) && GCR!=0.0) {
+	    cerr << "ERROR: GCR = " << GCR << "\n";
+	    cout << "Offending tracklet:\n";
+	    for(i=0;i<long(Atrkmat[tct].size());i++) {
+	      cerr << "point " << i << ": " << trkdets[i].image << " " << setprecision(8) << trkdets[i].MJD << " " << setprecision(8) << trkdets[i].RA << " " << setprecision(8) << trkdets[i].Dec << " " << setprecision(8) << trkdets[i].index << "\n"; 
+	    }
+	    return(25);
+	  }
+	  if(angvel<minvel || angvel>maxvel) continue; // Velocity is out-of-range: skip this one
+
+	  // Calculate the total angular arc, using the same prescription as will
+	  // be used in the final analysis later on.
+	  instep = (trkdets.size()-1)/4;
+	  rp1 = instep;
+	  rp2 = trkdets.size()-1-instep;
+	  dist = 3600.0*distradec01(fitRA[rp1], fitDec[rp1], fitRA[rp2], fitDec[rp2]);
+	  if(dist<minarc) continue; // Total arc is too short: skip this one.
+
+	  if(verbose>1) {
+	    cout << "Initial tracklet:\n";
+	    for(i=0;i<long(Atrkmat[tct].size());i++) {
+	      cout << fixed << setprecision(6) << "point " << i << ": " << trkdets[i].image << " "  << trkdets[i].MJD << " "  << trkdets[i].RA << " "  << trkdets[i].Dec << " "  << trkdets[i].index << "\n"; 
+	    }
+	  }
+	  // Reject time-duplicates and outliers
+	  int isdup=0;
+	  for(i=1;i<long(trkdets.size());i++) {
+	    if(fabs(trkdets[i].MJD - trkdets[i-1].MJD) < imagetimetol) isdup=1;
+	  }
+	  if(verbose>1) cout << "GCR = " << GCR << " , isdup = " << isdup << "\n";
+	  this_trkmetric = double(trkdets.size())+1.0-GCR/maxgcr;
+	  if(isdup==0 && GCR<=maxgcr && long(trkdets.size()) >= local_mintrkpts) {
+	    isgood=1;
+	    if(verbose>1) cout << "Tracklet passes duplication and GCR cuts without culling\n";
+	  }
+	  else {
+	    isgood=0; // Needs some culling.
+	    if(long(trkdets.size())<=local_mintrkpts) {
+	      if(verbose>1) cout << "Tracklet is rejected: too few points to survive needed culling\n";
+	    }
+	  }
+			      
+	  while(long(trkdets.size()) > local_mintrkpts && isgood==0) {
+	    if(verbose>1) cout << "Tracklet will be culled to eliminate time-duplicates and astrometric outliers\n";
+	    if(isdup>0) {
+	      // We have time-duplicates, and the tracklet is long enough that it could be culled.
+	      // Identify the worst outlier that is also a time-duplicate
+	      int worstoutlier=0;
+	      double worstresid=0.0;
+	      for(i=1;i<long(trkdets.size());i++) {
+		if(fabs(trkdets[i].MJD - trkdets[i-1].MJD) < imagetimetol) {
+		  if(residuals[i] >= worstresid) {
+		    worstoutlier = i;
+		    worstresid = residuals[i];
+		  }
+		  if(residuals[i-1] > worstresid) {
+		    worstoutlier = i-1;
+		    worstresid = residuals[i-1];
+		  }
+		}
+	      }
+	      // Tricky decision: how to handle the case where the first point,
+	      // the one from image A, is the worst outlier. Rejecting it
+	      // should be forbidden. Throw out the whole tracklet, or just
+	      // refuse to reject that point?
+	      // Choice for now: throw out the whole tracklet. The overall logic
+	      // of the code means the good part of the tracklet will inevitably
+	      // be reconstructed later on, while analyzing a different image.
+	      if(fabs(trkdets[worstoutlier].MJD-timeA) > imagetimetol) {
+		// The worst residual is not on image A. Reject it.
+		trkdets.erase(trkdets.begin()+worstoutlier);
+		if(verbose>1) {
+		  cout << "Rejected a time-duplicate. New, culled tracklet: \n";
+		  for(i=0;i<long(trkdets.size());i++) {
+		    cout << "point " << i << ": " << trkdets[i].image << " "  << trkdets[i].MJD << " "  << trkdets[i].RA << " "  << trkdets[i].Dec << " "  << trkdets[i].index << "\n";
+		  }
+		}
+		// Re-scan for duplicates.
+		isdup=0;
+		for(i=1;i<long(trkdets.size());i++) {
+		  if(fabs(trkdets[i].MJD - trkdets[i-1].MJD) < imagetimetol) isdup=1;
+		}
+		if(trkdets.size()>2) {
+		  // Re-do Great Circle fit
+		  fitRA = fitDec = residuals = {};
+		  poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = overmetric = 0.0;
+		  status =  greatcircresid(trkdets,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+		  if(status!=0) {
+		    cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+		    return(5);
+		  }
+		  GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
+		  this_trkmetric = double(trkdets.size())+1.0-GCR/maxgcr;
+		  if(verbose>1) cout << "GCR = " << GCR << " , isdup = " << isdup << "\n";
+		} else if(trkdets.size()==2) {
+		  dist = distradec01(trkdets[0].RA, trkdets[0].Dec, trkdets[1].RA, trkdets[1].Dec);
+		  angvel = dist/fabs(trkdets[1].MJD - trkdets[0].MJD);
+		  dist*=3600.0;
+		  this_trkmetric = 1.0;
+		  GCR=0.0;
+		}
+		if(isdup==0 && long(trkdets.size()) >= local_mintrkpts && GCR<=maxgcr) isgood=1;
+	      } else {
+		// The worst residual is on image A. Mark the whole tracklet as bad.
+		isgood = -1;
+		if(verbose>1) cout << "Worst residual is on image A: tracklet is bad\n";
+	      }
+	    } else if(GCR>maxgcr) {
+	      // All time-duplicates have been removed, but the tracklet still
+	      // has too high a GCR. Remove astrometric outliers until this is
+	      // no longer the case.
+	      int worstoutlier=0;
+	      double worstresid=0.0;
+	      for(i=0;i<long(trkdets.size());i++) {
+		if(residuals[i] >= worstresid) {
+		  worstoutlier = i;
+		  worstresid = residuals[i];
+		}
+	      }
+	      if(fabs(trkdets[worstoutlier].MJD-timeA) > imagetimetol) {
+		// The worst residual is not on image A. Reject it.
+		trkdets.erase(trkdets.begin()+worstoutlier);
+		if(verbose>1) {
+		  cout << "Rejected an astrometric outlier at " << worstresid << " arcsec. New, culled tracklet: \n";
+		  for(i=0;i<long(trkdets.size());i++) {
+		    cout << "point " << i << ": " << trkdets[i].image << " "  << trkdets[i].MJD << " "  << trkdets[i].RA << " "  << trkdets[i].Dec << " "  << trkdets[i].index << "\n";
+		  }
+		}
+		if(trkdets.size()>2) {
+		  // Re-do Great Circle fit
+		  fitRA = fitDec = residuals = {};
+		  poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = overmetric = 0.0;
+		  status =  greatcircresid(trkdets,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+		  if(status!=0) {
+		    cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+		    return(6);
+		  }
+		  GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
+		  this_trkmetric = double(trkdets.size())+1.0-GCR/maxgcr;
+		} else if(trkdets.size()==2) {
+		  dist = distradec01(trkdets[0].RA, trkdets[0].Dec, trkdets[1].RA, trkdets[1].Dec);
+		  angvel = dist/fabs(trkdets[1].MJD - trkdets[0].MJD);
+		  dist*=3600.0;
+		  this_trkmetric = 1.0;
+		  GCR=0.0;
+		}
+		if(verbose>1) cout << "GCR = " << GCR << " , isdup = " << isdup << " " << local_mintrkpts << " " << maxgcr << "\n";
+		if(isdup==0 && long(trkdets.size()) >= local_mintrkpts && GCR<=maxgcr) isgood=1;
+	      } else {
+		if(verbose>1) cout << "Worst residual is on image A: tracklet is bad\n";
+		isgood = -1;
+	      }
+	    }
+	  }
+	  if(isgood<=0) {
+	    if(verbose>1) cout << "Tracklet was no good: skipping it\n";
+	    if(verbose>1) cout << "GCR = " << GCR << " , isdup = " << isdup << " " << local_mintrkpts << " " << maxgcr << "\n";
+	    continue; // This tracklet was no good: skip (i.e., reject) it.
+	  } else if(verbose>1) cout << "Tracklet appears good, pending final check for overlap\n";
+	  // Final check: does the tracklet overlap an earlier tracklet with superior metric?
+	  superior_overlap=0;
+	  first_point_overlap=0;
+	  if(verbose>1) cout << "Overlap check for tracklet with ptnum, GCR, angvel, arc: " << trkdets.size() << " " << GCR << " " << angvel << " " << dist << "\n";
+	  for(i=0;i<long(trkdets.size());i++) {
+	    // Find out if point i of the new tracklet candidate overlaps a previous tracklet
+	    if(det2trk[trkdets[i].index] >= 0) {
+	      if(tracklet_metrics[det2trk[trkdets[i].index]] > this_trkmetric) {
+		superior_overlap++;
+		if(verbose>1) cout << "Overlaps superior tracklet " << det2trk[trkdets[i].index] << ": metric " << tracklet_metrics[det2trk[trkdets[i].index]] << " vs " << this_trkmetric << "\n";
+		if(i==0) {
+		  first_point_overlap=1;
+		  if(verbose>1) cout << "Overlap with superior tracklet is on the first point: reject this tracklet\n";
+		}
+	      } else {
+		if(verbose>1) cout << "Overlaps inferior tracklet " << det2trk[trkdets[i].index] << ": metric " << tracklet_metrics[det2trk[trkdets[i].index]] << " vs " << this_trkmetric << "\n";
+	      }
+	    }
+	  }
+	  if(verbose>1) cout << "trkdets.size(), superior_overlap, local_mintrkpts = " << trkdets.size() << " " << superior_overlap << " " << local_mintrkpts << "\n";
+	  if(long(trkdets.size())-superior_overlap < local_mintrkpts || first_point_overlap>0) {
+	    isgood = -1;
+	    if(verbose>1) cout << "Tracklet rejected: " << superior_overlap << " points overlap earlier, superior tracklets\n";
+	  }
+	  while(long(trkdets.size())-superior_overlap >= local_mintrkpts && superior_overlap>0 && isgood>0 && first_point_overlap<=0) {
+	    // The tracklet overlaps another tracklet with superior metric, but it might still be valid
+	    // after we remove the overlapping points.
+	    // Create a new tracklet with no points that overlap a superior tracklet
+	    vector <hldet> tmptrk;
+	    for(i=0;i<long(trkdets.size());i++) {
+	      if(det2trk[trkdets[i].index] < 0) {
+		// This point does not overlap any exclusive tracklet: add it to the temporary vector
+		tmptrk.push_back(trkdets[i]);
+	      } else if(this_trkmetric > tracklet_metrics[det2trk[trkdets[i].index]]) {
+		// This point overlaps a previous exclusive tracklet, but the new tracklet
+		// is better than the previous one. Add the point to the temporary vector
+		tmptrk.push_back(trkdets[i]);
+	      }
+	    }
+	    trkdets = tmptrk;
+	    // See if the tracklet still has sufficient points, GCR, velocities, arc length
+	    if(long(trkdets.size()) < local_mintrkpts) {
+	      isgood = -1; // Tracklet has become too short: reject this one
+	      break;
+	    }
+	    if(trkdets.size()<2) {
+	      isgood = -1; // Tracklet has become too short: reject this one
+	      break;
+ 	    } else if(trkdets.size()==2) {
+	      // This is only a two-point tracklet: no point in calculating GCR.
+	      // Calculate arc length and angular velocity
+	      dist = distradec01(trkdets[0].RA, trkdets[0].Dec, trkdets[1].RA, trkdets[1].Dec);
+	      angvel = dist/fabs(trkdets[1].MJD - trkdets[0].MJD);
+	      dist*=3600.0;
+	      this_trkmetric = 1.0;
+	      GCR=0.0;
+	    } else if(trkdets.size()>2) {
+	      fitRA = fitDec = residuals = {};
+	      poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = overmetric = 0.0;
+	      status =  greatcircresid(trkdets,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+	      if(status!=0) {
+		cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+		return(24);
+	      }
+	      GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
+	      // Calculate the total angular arc, using the same prescription as will
+	      // be used in the final analysis later on.
+	      instep = (trkdets.size()-1)/4;
+	      rp1 = instep;
+	      rp2 = trkdets.size()-1-instep;
+	      dist = 3600.0*distradec01(fitRA[rp1], fitDec[rp1], fitRA[rp2], fitDec[rp2]);
+	      // Re-calculate the metric.
+	      this_trkmetric = double(trkdets.size())+1.0-GCR/maxgcr;
+	    }
+	    if(angvel<minvel || angvel>maxvel || dist<minarc) {
+	      isgood = -1; // Total arc is too short: reject this one
+	      break; 
+	    }
+	    // If we get this far, the tracklet must be OK. Re-assess its superiority using the new metric.
+	    superior_overlap=0;
+	    first_point_overlap=0;
+	    for(i=0;i<long(trkdets.size());i++) {
+	      // The metric has changed, so we might find additional overlapping
+	      // tracklets to which it is no longer superior
+	      if(det2trk[trkdets[i].index] >= 0) {
+		if(tracklet_metrics[det2trk[trkdets[i].index]] > this_trkmetric) {
+		  superior_overlap++;
+		  if(i==0) first_point_overlap=1;
+		}
+	      }
+	    }
+	    if(long(trkdets.size())-superior_overlap < local_mintrkpts || first_point_overlap>0) {
+	      // Additional overlapping superior tracklets have been found, and
+	      // the current tracklet will not survive culling the overlapping points.
+	      isgood = -1;
+	      break;
+	    }
+	    if(superior_overlap==0 && long(trkdets.size()) >= local_mintrkpts && angvel>=minvel && angvel<=maxvel && dist>=minarc && first_point_overlap<=0) {
+	      isgood=1;
+	      break;
+	    }
+	  }
+	
+	  if(isgood<=0) {
+	    if(verbose>1) cout << "Tracklet rejected at overlap check: skipping it\n";
+	    if(verbose>1) cout << "GCR = " << GCR << " , isdup = " << isdup << " " << local_mintrkpts << " " << maxgcr << "\n";
+	    continue; // This tracklet was no good: skip (i.e., reject) it.
+	  }
+		
+	  if(verbose>1) cout << "Keeping tracklet with " << trkdets.size() << " points\n";
+	  // Save culled version
+	  Atrkvec={};
+	  for(i=0;i<long(trkdets.size());i++) {
+	    Atrkvec.push_back(trkdets[i].index);
+	  }
+	  Atrkmat2.push_back(Atrkvec);
+	  // Store quality metric
+	  di = double_index(this_trkmetric,Atrkmat2.size()-1);
+	  best_trk.push_back(di);
+	  // Close loop over all tracklets involving detection detct on image A
+	}
+	if(Atrkmat2.size() != best_trk.size()) {
+	  cerr << "ERROR: Atrkmat2 and best_trk vectors don't have the same size: " << Atrkmat2.size() << " vs. " <<  best_trk.size() << "\n";
+	  return(7);
+	}
+	if(Atrkmat2.size()>0) {
+	  // Sort tracklets by quality metric
+	  sort(best_trk.begin(), best_trk.end(), lower_double_index());
+	  // Loop over tracklets from best to worst.
+	  for(long tct=best_trk.size()-1; tct>=0; tct--) {
+	    bad_reuse=0;
+	    this_trkmetric = best_trk[tct].delem;
+	    long btrk = best_trk[tct].index;
+	    long trklen = Atrkmat2[btrk].size();
+	    
+	    // Screen out obvious failure cases
+	    if(trklen<2 || trklen<local_mintrkpts) continue;
+	    
+	    // Determine if this tracklet overlaps an exclusive tracklet
+	    overlapping_tracklets={};
+	    for(i=0;i<trklen;i++) {
+	      if(detvec[Atrkmat2[btrk][i]].index>0) {
+		// Load the tracklet index of the exclusive tracklet to which this
+		// detection was previously assigned.
+		overlapping_tracklets.push_back(det2trk[Atrkmat2[btrk][i]]);
+	      }
+	    }
+	    if(overlapping_tracklets.size()>1) {
+	      // Sort and de-duplicate the vector overlapping_tracklets
+	      sort(overlapping_tracklets.begin(),overlapping_tracklets.end());
+	      i=0;
+	      while(i<long(overlapping_tracklets.size()-1)) {
+		if(overlapping_tracklets[i+1] == overlapping_tracklets[i]) overlapping_tracklets.erase(overlapping_tracklets.begin()+i+1);
+		else i++;
+	      }
+	    }
+	  
+	    if(trklen==2 && overlapping_tracklets.size()<=0) {
+	      // Simple two-point tracklet, cannot supersede an exclusive tracklet
+	      // Load the tracklet summary vector
+	      track1 = tracklet(detvec[Atrkmat2[btrk][0]].image,detvec[Atrkmat2[btrk][0]].RA,detvec[Atrkmat2[btrk][0]].Dec,detvec[Atrkmat2[btrk][1]].image,detvec[Atrkmat2[btrk][1]].RA,detvec[Atrkmat2[btrk][1]].Dec,trklen,tracklets.size());
+	      tracklets.push_back(track1);
+	      if(local_mintrkpts>2) {
+		cerr << "ERROR: writing 2-point tracklet when this should be forbidden\n";
+		return(22);
+	      }
+	      // Load the tracklet index vector
+	      ivec = {};
+	      for(i=0;i<trklen;i++) ivec.push_back(Atrkmat2[btrk][i]);
+	      tracklet_indexmat.push_back(ivec);
+	      tracklets_min_length.push_back(local_mintrkpts);
+	      tracklet_metrics.push_back(this_trkmetric);
+	      if(tracklets_min_length.size() != tracklets.size() || tracklet_metrics.size() != tracklets.size() || tracklet_indexmat.size() != tracklets.size()) {
+		cerr << "ERROR: tracklet record vector size mismatch: " << tracklets.size() << " " << tracklets_min_length.size() << " " << tracklet_metrics.size() << " " <<  tracklet_indexmat.size() << "\n";
+		return(25);
+	      }
+
+	      // Load pairdets and trk2det
+	      for(i=0;i<trklen;i++) {
+		if(detvec[Atrkmat2[btrk][i]].index <= -detnum) {
+		  // This detection has never been used before. Flag it as used
+		  detvec[Atrkmat2[btrk][i]].index = -pairdets.size();
+		  // Load the corresponding entry to the trk2det vector
+		  onepair = longpair(track1.trk_ID, pairdets.size());
+		  trk2det.push_back(onepair);
+		  // Load the detection to the pairdets vector.
+		  onedet = detvec[Atrkmat2[btrk][i]];
+		  onedet.index = Atrkmat2[btrk][i];
+		  pairdets.push_back(onedet);
+		} else if(detvec[Atrkmat2[btrk][i]].index<=0) {
+		  // This detection has previously been used in an non-exclusive tracklet,
+		  // and hence has already been added to pairdets with a negative index to
+		  // the pairdets vector. Load just the trk2det entry
+		  pdct = -detvec[Atrkmat2[btrk][i]].index;
+		  onepair = longpair(track1.trk_ID, pdct);
+		  trk2det.push_back(onepair);
+		} else {
+		  // This detection has previously been used in an exclusive tracklet.
+		  // This earlier, exclusive tracklet supersedes the
+		  // current two-point tracklet: skip (i.e., reject) the current tracklet
+		  cerr << "ERROR: two-point tracklet found to overlap after check\n";
+		  return(26);
+		}
+	      }
+	      // End case of tracklet with only two points.
+	    } else {
+	      // This tracklet needs some analyis, since it has more than two points.
+	      // Load it into trkdets.
+	      trkdets={};
+	      for(i=0;i<trklen;i++) {
+		hldet tdet = detvec[Atrkmat2[btrk][i]];
+		tdet.index = Atrkmat2[btrk][i];
+		trkdets.push_back(tdet);
+	      }
+	      // Perform a final Great Circle fit
+	      fitRA = fitDec = residuals = {};
+	      poleRA = poleDec = angvel = dist = pa = crosstrack = alongtrack = GCR = overmetric = 0.0;
+	      status =  greatcircresid(trkdets,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+	      if(status!=0) {
+		cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+		return(9);
+	      }
+	      GCR = sqrt(crosstrack*crosstrack + alongtrack*alongtrack);
+	      this_trkmetric = double(trkdets.size())+1.0-GCR/maxgcr;
+	      if(angvel<minvel || angvel>maxvel) continue; // Velocity is out-of-range: skip this one
+	      // Select points that will represent this tracklet.
+	      instep = (trklen-1)/4;
+	      rp1 = instep;
+	      rp2 = trklen-1-instep;
+	      if(rp1==rp2) {
+		cerr << "ERROR: both representative points for a tracklet are the same!\n";
+		cerr << "size, instep, rp1, rp2: " << trklen << " " << instep << " " << rp1 << " " << rp2 << "\n";
+	      }
+	      // Calculate total angular arc
+	      dist = 3600.0*distradec01(fitRA[rp1], fitDec[rp1], fitRA[rp2], fitDec[rp2]);
+	      // Note: it can be argued that the dist calculated above is not really the total
+	      // angular arc, because it's the span between the two representative points instead
+	      // of all the way from the beginning of the tracklet to its end. There are at
+	      // least two alternative ways of calculating such a value: use the actual
+	      // extreme points, or just multiply the total time span by the angular velocity.
+	      // I haven't been able to convince myself that either of them is a better idea
+	      // than the above.
+	      if(dist<minarc) continue; // Total arc is too short: skip this one.
+	      if(overlapping_tracklets.size()>0 && verbose>1) {
+		cout << "Found " << overlapping_tracklets.size() << " tracklets that overlap " << trklen << "-point tracklet ";
+		for(i=0;i<trklen;i++) cout << Atrkmat2[btrk][i] << " ";
+		cout << "\n";
+	      }
+	      int superseded=0;
+	      for(j=0;j<long(overlapping_tracklets.size());j++) {
+		if(tracklet_metrics[overlapping_tracklets[j]] > this_trkmetric) {
+		  // An earlier exclusive tracklet is better than the current one.
+		  superseded=1;
+		}
+	      }
+	      if(superseded>0) {
+		// Though this case is logically allowed in find_pairs3, it it supposed to
+		// be impossible in find_pairs5. Exit with an error.
+		cerr << "ERROR: tracklet found to overlap a superior tracklet, at a stage where\n";
+		cerr << "all such cases should already have been caught\n";
+		return(15);
+	      }
+	      if(superseded==0 && overlapping_tracklets.size() > 0) {
+		// This tracklet overlaps older tracklets, but it is better than they are
+		// Delete (or trim) overlapping previous tracklets that are inferior to this one.
+		for(j=0;j<long(overlapping_tracklets.size());j++) {
+		  long overtrk = overlapping_tracklets[j];
+		  long trklnum = tracklet_lookup_ind(trk2det, overtrk, trkdetind, trkindind);
+		  // Check for failure in tracklet_lookup_ind()
+		  if(trklnum != long(trkdetind.size()) || trklnum != long(trkindind.size())) {
+		    cerr << "ERROR: inconsistent tracklet length info from tracklet_lookup_ind(): " << trklnum << " " << trkdetind.size() << " " << trkindind.size() << "\n";
+		    return(15);
+		  }
+		  if(trklnum != tracklets[overtrk].npts) {
+		    cerr << "ERROR: tracklet length mis-match for overlapping tracklet " << overtrk << " : " << trklnum << " vs. " << tracklets[overtrk].npts << "\n";
+		    return(16);
+		  }
+		  // Catch the illogical case where a non-exclusive tracklet supersedes an exclusive one.
+		  if(trklen <= max_netl) {
+		    cerr << "ERROR: non-exclusive tracklet of length " << trklen << " and metric " << this_trkmetric << " recorded as superseding\n";
+		    cerr << "an earlier, exlusive tracklet length " << trklnum << " and metric " <<  tracklet_metrics[overlapping_tracklets[j]] << "\n";
+		    return(12);
+		  }
+		  // Determine how many of the points in tracklet overtrk actually overlap the current tracklet
+		  superior_overlap=0;
+		  vector <long> erase_trkdetind;
+		  vector <long> erase_trkindind;
+		  vector <hldet> trimmed_overtrk;
+		  for(i=0;i<long(trkdetind.size());i++) {
+		    // Find out if point i of tracklet overtrk overlaps the new tracklet;
+		    int ovlp=0;
+		    for(long k=0;k<long(trkdets.size());k++) {
+		      if(pairdets[trkdetind[i]].index==trkdets[k].index) {
+			ovlp=1;
+			erase_trkdetind.push_back(trkdetind[i]);
+			erase_trkindind.push_back(trkindind[i]);
+		      }
+		    }
+		    if(ovlp<=0) {
+		      trimmed_overtrk.push_back(pairdets[trkdetind[i]]);
+		    }
+		  }
+		  if(erase_trkdetind.size()<=0 || erase_trkindind.size()<=0) {
+		    cerr << "ERROR: tracklet " << overtrk << " was reported as overlapping, but does not actually do so\n";
+		    cerr << "TRACKLET " << overtrk << ":\n";
+		    for(i=0;i<trklnum;i++) {
+		      cerr << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+		    }
+		    cerr << "NEW TRACKLET:\n";
+		    for(i=0;i<trklen;i++) {
+		      cerr << " " << trkdets[i].index << " " << detvec[trkdets[i].index].image << " " << detvec[trkdets[i].index].MJD << " " << detvec[trkdets[i].index].RA << " " << detvec[trkdets[i].index].Dec << " " << detvec[trkdets[i].index].index << " " << det2trk[trkdets[i].index] << "\n";
+		    }
+   		    return(16);
+		  }
+		  long trimmed_overlen = trimmed_overtrk.size();
+		  if(verbose>1) cout << "Investigating overlapping tracklet " << overtrk << ", with " << erase_trkdetind.size() << " = " << erase_trkindind.size() << " overlapping points, and " << trimmed_overlen << " points that remain unique\n";
+		  int keep_overtrk=1;
+		  if(trimmed_overlen < tracklets_min_length[overtrk]) {
+		    if(verbose>1) cout << "After removing overlaps, tracklet " << overtrk << " has too few points (" << trimmed_overlen << "), and must be deleted\n";
+		    keep_overtrk=0;
+		  }
+		  if(keep_overtrk>0) {
+		    if(trimmed_overlen==2) {
+		      tdist = distradec01(trimmed_overtrk[0].RA, trimmed_overtrk[0].Dec, trimmed_overtrk[1].RA, trimmed_overtrk[1].Dec);
+		      tangvel = tdist/fabs(trimmed_overtrk[1].MJD - trimmed_overtrk[0].MJD);
+		      tdist*=3600.0;
+		      overmetric = 1.0;
+		      tGCR=0.0;
+		      trp1=0;
+		      trp2=1;
+		    }
+		    else if(trimmed_overlen>2) {
+		      // Perform Great Circle fit to trimmed_overtrk
+		      tpoleRA = tpoleDec = tangvel = tpa = tcrosstrack = talongtrack = tGCR = tdist = 0.0;
+		      tfitRA = tfitDec = tresiduals = {};
+		      trp1 = trp2 = 0;
+		      status =  greatcircresid(trimmed_overtrk,tpoleRA,tpoleDec,tangvel,tpa,tcrosstrack,talongtrack,tfitRA,tfitDec,tresiduals,verbose);
+		      if(status!=0) {
+			cerr << "ERROR: greatcircresid exited with status " << status << "\n";
+			return(19);
+		      }
+		      tGCR = sqrt(tcrosstrack*tcrosstrack + talongtrack*talongtrack);
+		      // Select points that will represent this tracklet.
+		      instep = (trimmed_overlen-1)/4;
+		      trp1 = instep;
+		      trp2 = trimmed_overlen-1-instep;
+		      if(trp1==trp2) {
+			cerr << "ERROR: both representative points for a tracklet are the same!\n";
+			cerr << "size, instep, trp1, trp2: " << trimmed_overlen << " " << instep << " " << trp1 << " " << trp2 << "\n";
+		      }
+		      // Calculate total angular arc
+		      tdist = 3600.0*distradec01(tfitRA[trp1], tfitDec[trp1], tfitRA[trp2], tfitDec[trp2]);
+		      if(verbose>1) cout << "trimmed_overtrk GCR, angvel, dist: " << tGCR << " " << angvel << " " << tdist << "\n";
+		      overmetric = double(trimmed_overlen) + 1.0 - tGCR/maxgcr;
+		    }
+		    if(tdist<minarc || tangvel<minvel || tangvel>maxvel) {
+		      keep_overtrk=0;
+		      if(verbose>1) cout << "Trimmed tracklet rejected: velocity out-of-range, or arc too short\n";
+		    }
+		    if(keep_overtrk>0) { // Trimmed tracklet appears to be good. Update the relevant output vectors
+		      if(verbose>1) {
+			cout << "PRE-TRIMMING:\n";
+			for(i=0;i<trklnum;i++) {
+			  cerr << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+			}
+		      }
+		      status = delete_trkpts01(detvec, pairdets, trk2det, det2trk, tracklets, tracklets_min_length, tracklet_metrics, tracklet_indexmat, overmetric, erase_trkdetind, erase_trkindind, overtrk, max_netl, trimmed_overtrk, trp1, trp2, tfitRA, tfitDec, verbose);
+		      if(status!=0) {
+			cerr << "ERROR: delete_trkpts01 returns status " << status << "\n";
+			return(status);
+		      }
+		      if(verbose>0) {
+			if(verbose>1) cout << "POST-TRIMMING, old trk2det indices:\n";
+			for(i=0;i<trklnum;i++) {
+			  if(verbose>1) cout << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+			}
+			// Test lookup trimmed tracklet:
+			trklnum = tracklet_lookup_ind(trk2det, overtrk, trkdetind, trkindind);
+			if(verbose>1) cout << "POST-TRIMMING, new trk2det indices:\n";
+			for(i=0;i<trklnum;i++) {
+			  if(verbose>1) cout << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+			}
+		      }
+		      // Close else if statement confirming the trimmed overlapping tracklet should be retained
+		    }
+		  }
+		  if(keep_overtrk<=0) {
+		    // The overlapping tracklet should be deleted.
+		    if(verbose>0) cout << "In favor of new tracklet " << tracklets.size()-1 << ", with " << trklen << " points and metric " << this_trkmetric << ", deleting " << trklnum << "-point tracket " << overtrk << " with metric " << tracklet_metrics[overtrk] << "\n";
+		    status = delete_tracklet01(overtrk, trkdetind, trkindind, detvec, trk2det, tracklets, pairdets, tracklet_metrics, det2trk, tracklets_min_length, tracklet_indexmat, overlapping_tracklets, verbose); 
+		    if(status!=0) {
+		      cerr << "ERROR: delete_tracklet01 returns error code " << status << "\n";
+		      return(status);
+		    }
+		    if(tracklets_min_length.size() != tracklets.size() || tracklet_metrics.size() != tracklets.size() || tracklet_indexmat.size() != tracklets.size()) {
+		      cerr << "ERROR: tracklet record vector size mismatch: " << tracklets.size() << " " << tracklets_min_length.size() << " " << tracklet_metrics.size() << " " <<  tracklet_indexmat.size() << "\n";
+		      return(27);
+		    }
+
+		    // Renumber any further entries in the overlapping tracklets list
+		    for(long k=j+1; k<long(overlapping_tracklets.size()); k++) {
+		      overlapping_tracklets[k]--;
+		    }
+		  }
+		  // Close loop on tracklets we are deleting
+		}
+		// Close if-statement checking that there were old overlapping tracklets to be deleted.
+	      }
+	      // If we get here, we have a tracklet with more than two points that either
+	      // has no overlap with previous exclusive tracklets, or else supersedes them.
+
+	      // Load tracklet summary with image indices, RA, and Dec, for the representative pair, plus the
+	      // total number of constituent points and the tracklet's eventual index in the output tracklets vector,
+	      // and push to the output trackets vector.
+	      // Note: the index to the tracklets vector is preserved for now in track1.trk_ID.
+	      track1 = tracklet(detvec[Atrkmat2[btrk][rp1]].image,fitRA[rp1],fitDec[rp1],detvec[Atrkmat2[btrk][rp2]].image,fitRA[rp2],fitDec[rp2],trklen,tracklets.size());
+	      // Load it to the output vectors.
+	      tracklets.push_back(track1);
+	      if(trklen<local_mintrkpts && trklen==2) {
+		cerr << "ERROR: writing too-short tracket when this should be forbidden\n";
+		return(24);
+	      }
+	      // Load the tracklet index vector
+	      ivec = {};
+	      for(i=0;i<trklen;i++) ivec.push_back(Atrkmat2[btrk][i]);
+	      tracklet_indexmat.push_back(ivec);
+	      tracklets_min_length.push_back(local_mintrkpts);
+	      tracklet_metrics.push_back(this_trkmetric);
+	      if(tracklets_min_length.size() != tracklets.size() || tracklet_metrics.size() != tracklets.size() || tracklet_indexmat.size() != tracklets.size()) {
+		cerr << "ERROR: tracklet record vector size mismatch: " << tracklets.size() << " " << tracklets_min_length.size() << " " << tracklet_metrics.size() << " " <<  tracklet_indexmat.size() << "\n";
+		return(29);
+	      }
+
+
+	      //DEBUGGING
+	      if(tracklets.size()%10==7 && verbose>1) {
+		bad_reuse_example = 10*floor(double(tracklets.size())/10.0)+5;
+		i = tracklet_lookup_ind(trk2det, bad_reuse_example, trkdetind, trkindind);
+		cerr << "TEST TRACKLET: " << bad_reuse_example << " :\n";
+		for(i=0;i<long(trkdetind.size());i++) {
+		  cerr << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+		}
+	      }
+	      //DEBUGGING
+
+	      // Write points to the paired detection and the trk2det vectors
+	      if(trklen > max_netl) {
+		// This tracklet is exclusive
+		for(i=0;i<trklen;i++) {
+		  if(detvec[Atrkmat2[btrk][i]].index <= -detnum) {
+		    // This detection has never been used before. Flag it as exclusive
+		    detvec[Atrkmat2[btrk][i]].index = pairdets.size();
+		    // Load the corresponding entry to the trk2det vector
+		    onepair = longpair(track1.trk_ID, pairdets.size());
+		    trk2det.push_back(onepair);
+		    // Load the detection to the pairdets vector.
+		    onedet = detvec[Atrkmat2[btrk][i]];
+		    onedet.index = Atrkmat2[btrk][i];
+		    pairdets.push_back(onedet);
+		  } else if(detvec[Atrkmat2[btrk][i]].index<=0) {
+		    // This detection has previously been used in an non-exclusive tracklet,
+		    // and hence has already been added to pairdets with a negative index to
+		    // the pairdets vector. Load just the trk2det entry
+		    pdct = -detvec[Atrkmat2[btrk][i]].index;
+		    onepair = longpair(track1.trk_ID, pdct);
+		    trk2det.push_back(onepair);
+		    // Re-set the detvec index to flag the point as exclusive
+		    detvec[Atrkmat2[btrk][i]].index = pdct;
+		    // Note: in principle, we should delete any previous tracklets
+		    // that contained this point, since it has been found in an
+		    // 'exclusive' tracklet. In practice, this is not worth the trouble,
+		    // since the case is expected to be rare and benign.
+		  } else {
+		    // This detection has previously been used in an exclusive tracklet.
+		    // Ideally, this would not be possible, but the program's logic does
+		    // permit it under circumstances which should be statistically rare.
+		    // Track the errors:
+		    bad_reuse++;
+		    forbidden_reuses++;
+		    bad_reuse_example = det2trk[Atrkmat2[btrk][i]];
+		    cerr << "Bad reuse of index " << detvec[Atrkmat2[btrk][i]].index << ", previously assigned to exclusive tracklet " << det2trk[Atrkmat2[btrk][i]] << " originally numbered as " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		    cerr << " " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		    // And then add it to trk2det anyway.
+		    pdct = detvec[Atrkmat2[btrk][i]].index;
+		    onepair = longpair(track1.trk_ID, pdct);
+		    trk2det.push_back(onepair);
+		  }
+		  // Mark detection i as having been used in an exclusive tracklet
+		  det2trk[Atrkmat2[btrk][i]] = track1.trk_ID;
+		  if(verbose>0) cout << fixed << setprecision(6) << "new tracklet point: " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		}
+		if(bad_reuse>0) {
+		  cerr << "WARNING 13: " << bad_reuse << " attempts to use an already-excluded point, tct = " << tct << " of " << best_trk.size() << ", btrk = " << btrk << "\n";
+		  cerr << "NEW TRACKLET:\n";
+		  for(i=0;i<trklen;i++) {
+		    cerr << " " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		  }
+		  i = tracklet_lookup_ind(trk2det, bad_reuse_example, trkdetind, trkindind);
+		  cerr << "OLD TRACKLET: " << bad_reuse_example << " :\n";
+		  for(i=0;i<long(trkdetind.size());i++) {
+		    cerr << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+		  }
+		  return(13);
+		}
+		// Since the tracklet is exclusive, no other tracklets involving
+		// detection detct on image A need be considered.
+		break;
+		// End if-statement checking that the tracklet is exclusive
+	      } else {
+		// The tracklet is not exclusive
+		for(i=0;i<trklen;i++) {
+		  if(detvec[Atrkmat2[btrk][i]].index <= -detnum) {
+		    // This detection has never been used before. Flag it as used
+		    detvec[Atrkmat2[btrk][i]].index = -pairdets.size();
+		    // Load the corresponding entry to the trk2det vector
+		    onepair = longpair(track1.trk_ID, pairdets.size());
+		    trk2det.push_back(onepair);
+		    // Load the detection to the pairdets vector.
+		    onedet = detvec[Atrkmat2[btrk][i]];
+		    onedet.index = Atrkmat2[btrk][i];
+		    pairdets.push_back(onedet);
+		  } else if(detvec[Atrkmat2[btrk][i]].index<=0) {
+		    // This detection has previously been used in an non-exclusive tracklet,
+		    // and hence has already been added to pairdets with a negative index to
+		    // the pairdets vector. Load just the trk2det entry
+		    pdct = -detvec[Atrkmat2[btrk][i]].index;
+		    onepair = longpair(track1.trk_ID, pdct);
+		    trk2det.push_back(onepair);
+		  } else {
+		    // This detection has previously been used in an exclusive tracklet.
+		    // Ideally, this would not be possible, but the program's logic does
+		    // permit it under circumstances which should be statistically rare.
+		    // Track the errors:
+		    bad_reuse++;
+		    forbidden_reuses++;
+		    bad_reuse_example = det2trk[Atrkmat2[btrk][i]];
+		    cerr << "Bad reuse of index " << detvec[Atrkmat2[btrk][i]].index << ", previously assigned to exclusive tracklet " << det2trk[Atrkmat2[btrk][i]] << " originally numbered as " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		    cerr << " " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		    // And then add it to trk2det anyway.
+		    pdct = detvec[Atrkmat2[btrk][i]].index;
+		    onepair = longpair(track1.trk_ID, pdct);
+		    trk2det.push_back(onepair);
+		  }
+		}
+		if(bad_reuse>0) {
+		  cerr << "WARNING 12: " << bad_reuse << " attempts to use an already-excluded point, tct = " << tct << " of " << best_trk.size() << ", btrk = " << btrk << "\n";
+		  cerr << "NEW TRACKLET:\n";
+		  for(i=0;i<trklen;i++) {
+		    cerr << " " << Atrkmat2[btrk][i] << " " << detvec[Atrkmat2[btrk][i]].image << " " << detvec[Atrkmat2[btrk][i]].MJD << " " << detvec[Atrkmat2[btrk][i]].RA << " " << detvec[Atrkmat2[btrk][i]].Dec << " " << detvec[Atrkmat2[btrk][i]].index << " " << det2trk[Atrkmat2[btrk][i]] << "\n";
+		  }
+		  i = tracklet_lookup_ind(trk2det, bad_reuse_example, trkdetind, trkindind);
+		  cerr << "OLD TRACKLET: " << bad_reuse_example << " :\n";
+		  for(i=0;i<long(trkdetind.size());i++) {
+		    cerr << " " << pairdets[trkdetind[i]].index << " " << detvec[pairdets[trkdetind[i]].index].image << " " << detvec[pairdets[trkdetind[i]].index].MJD << " " << detvec[pairdets[trkdetind[i]].index].RA << " " << detvec[pairdets[trkdetind[i]].index].Dec << " " << detvec[pairdets[trkdetind[i]].index].index << " " << det2trk[pairdets[trkdetind[i]].index] << "\n";
+		  }
+		  return(12);
+		}
+	      }
+	      // End else-statment checking that the tracklet has more that two points.
+	    }
+	    // End for loop over tracklets involving detection detct on image A.
+	  }
+	  // End if-statement checking that valid tracklets exist involving detection detct on image A
+	}
+	// End loop over all detections on image A
+      }
+      // End if-statement checking if image A has enough overlap
+      // to produce valid tracklets.
+    }
+    // End loop giving each image a chance to be image A
+  }
+
+  cout << "Exiting find_pairs5 with " << forbidden_reuses << " forbidden re-uses of points from exclusive tracklets\n";
+  cout << "Vector sizes: pairdets = " << pairdets.size() << "  trk2det = " << trk2det.size() << "  tracklets = " << tracklets.size() << "\n";
+  return(0);
+}
 
 
 
@@ -24742,6 +27341,15 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 	    GCR = sqrt(GCR/double(timevec.size()));
 	  }
 	}
+	// Recalculate istimedup, now that the loop is finished.
+	istimedup=0;
+	j=1;
+	while(j<long(timevec.size()) && istimedup==0) {
+	  if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+	    istimedup=1; // Point j and j-1 are time-duplicates.
+	  }
+	  j++;
+	}
 	// Find worst error.  
 	worsterr = 0.0l;
 	for(j=0; j<long(timevec.size()); j++) {
@@ -24806,6 +27414,7 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 	    istracklet=1;
 	  }
 	}
+	if(istimedup>0) istracklet=0; // Could not eliminate time-duplicates, tracklet is no good.
 	if(istracklet==1 && worsterr<=maxgcr && timevec.size()>=3 && long(timevec.size())>=mintrkpts) {
 	  // We succeeded in finding a tracklet with no time-duplicates, and
 	  // no outliers beyond maxgcr, and we have not rejected the anchor point.
@@ -24898,7 +27507,11 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
   // Sort the vector ldivec, which will put the detections that
   // anchor tracklets with many detections and low GCR at the end.
   sort(ldivec.begin(), ldivec.end(), lower_longpd_index());
-
+  if(verbose>=2) {
+    for(i=0;i<long(ldivec.size());i++) {
+      cout << "ldivec[" << i << "]: " << ldivec[i].lelem << " " << ldivec[i].delem << " " << ldivec[i].index << "\n";
+    }
+  }
   // LOOP BACK FOR FINAL WRITING OF TRACKLETS WITH MORE THAN TWO POINTS
   for(i=long(ldivec.size()-1); i>=0; i--) {
     pdct = ldivec[i].index;
@@ -24989,6 +27602,9 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
 	  // Write out representative pair, followed by RA, Dec and the total number of constituent points
 	  track1 = tracklet(pairdets[detindexvec[rp1]].image,outra1,outdec1,pairdets[detindexvec[rp2]].image,outra2,outdec2,detindexvec.size(),tracklets.size());
 	  tracklets.push_back(track1);
+	  if(verbose>=2) {
+	    cout << "Writing tracklet " << tracklets.size() << " " << pairdets[detindexvec[rp1]].image << " " << outra1 << " " << outdec1 << " " << detindexvec.size() << "\n";
+	  }
 	  for(j=0; j<long(detindexvec.size()); j++) {
 	    onepair = longpair(tracklets[tracklets.size()-1].trk_ID,detindexvec[j]);
 	    // Wipe indvecs entry for all sources, if tracklet is long enough to be exclusive.
@@ -25028,6 +27644,613 @@ int merge_pairs2(const vector <hldet> &pairdets, vector <vector <long>> &indvecs
   }
   return(0);
 }
+
+
+//merge_pairs3: August 18, 2025:
+// Like merge_pairs2, but enables an image-dependent maximum
+// tracklet length, which is required to be provided externally
+// via the vector image_overlap, which may be produced by a
+// call to the function calculate_overlap()
+int merge_pairs3(const vector <hldet> &pairdets, vector <vector <long>> &indvecs, const vector <longpair> &pairvec, vector <tracklet> &tracklets, vector <longpair> &trk2det, int mintrkpts, const vector <int> image_overlap, double trkfrac, int max_netl, double maxgcr, double minarc, double minvel, double maxvel, int verbose)
+{
+  long detnum = pairdets.size();
+  long detct=0;
+  long i = 0;
+  long pdct=0;
+  int istracklet=0;
+  vector <hldet> ppset = {};
+  vector <vector <long>> ppind = {};
+  xy_index xyind=xy_index(0.0, 0.0, 0);
+  vector <xy_index> axyvec = {};
+  double dist = 0.0l;
+  double pa = 0.0l;
+  tracklet track1 = tracklet(0,0.0l,0.0l,0,0.0l,0.0l,0,0);
+  longpair onepair = longpair(0,0);
+  long j=0;
+  long k=0;
+  int biggest_tracklet = -1;
+  int tracklet_size = 0;
+  point3d_index p3di = point3d_index(0.0l,0.0l,0.0l,0);
+  vector <point3d_index>   track_mrdi_vec;
+  int trkptnum=0;
+  int istimedup=1;
+  vector <double> timevec;
+  vector <double> xvec;
+  vector <double> yvec;
+  vector <long> detindexvec;
+  double slopex,slopey,interceptx,intercepty,worsterr;
+  slopex = slopey = interceptx = intercepty = worsterr = 0.0l;
+  vector <double> fiterr = {};
+  vector <double> fiterr2 = {};
+  int worstpoint=-1;
+  double dtref,dt,dx,dy,angvel;
+  dtref = dt = dx = dy = angvel = 0.0l;
+  double outra1,outdec1,outra2,outdec2;
+  outra1 = outdec1 = outra2 = outdec2 = 0.0l;
+  int rp1,rp2,instep;
+  rp1=rp2=instep=0;
+  double GCR=0;
+  vector <vector <long>> indvecs2;
+  
+  long lelem = 0;
+  double delem = 0.0l;
+  long index = 0;
+  longpd_index one_ldi = longpd_index(lelem,delem,index);
+  vector <longpd_index> ldivec = {};
+  long local_mintrkpts=2;
+
+  if(detnum != long(indvecs.size())) {
+    cerr << "ERROR: merge_pairs received input vectors pairdets and indvecs\n";
+    cerr << "with different lengths (" << detnum << " and " << indvecs.size() << "\n";
+    return(4);
+  }
+  if(verbose) {
+    cout << "Input vector lengths: pairdets: " << detnum << ", indvecs: " << indvecs.size() << ", pairvec: " << pairvec.size() << "\n";
+  }
+
+  // Load indvecs2 with empty vectors
+  for(detct=0; detct<detnum; detct++) {
+    detindexvec={};
+    indvecs2.push_back(detindexvec);
+  }
+  
+  // Sanity-check indvecs
+  cout << "merge_pairs is sanity-checking indvecs\n";
+  for(detct=0; detct<detnum; detct++) {
+    for(i=0; i<long(indvecs[detct].size()); i++) {
+      if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	cerr << "Acceptable range is 0 to " << detnum << "\n";
+	return(9);
+      }
+    }
+  }
+  cout << "Sanity-check finished\n";
+  
+  tracklets={};
+  trk2det={}; // Wipe output vectors.
+  
+  // Loop over all detections, and find the best multi-point tracklet,
+  // if any, containing each detection.
+  for(i=0; i<detnum; i++) {
+    istracklet=0; // Assume there is no tracklet unless one is confirmed to exist.
+    local_mintrkpts = double(image_overlap[pairdets[i].image])*trkfrac + 0.5;
+    if(local_mintrkpts < mintrkpts) local_mintrkpts = mintrkpts;
+    if(long(indvecs[i].size()) >= local_mintrkpts-1 && long(indvecs[i].size())>=2) {
+      // The above condition uses local_mintrkpts-1 because the root detection i
+      // is itself a potential point in the tracklet
+      if(verbose>=1) {
+	cout << "Working on detection " << i << " of " << detnum << ", with " << indvecs[i].size() << " pair partners";
+	if(verbose>=3) {
+	  cout << ":\n";
+	  for(j=0; j<long(indvecs[i].size()); j++) {
+	    cout << indvecs[i][j] << ", ";
+	  }
+	  cout << "\n";
+	} else cout << "\n";
+      }
+      // Detection i is paired with more than one
+      // other detection.
+      // Project all of these pairs relative to detection i,
+      // storing x,y projected coordinates in axyvec.
+      axyvec={};
+      ppset={};
+      ppind={};
+      for(j=0; j<long(indvecs[i].size()); j++) { // Loop over the pair-partners of detection i.
+	detct = indvecs[i][j]; // detct is the pairdets index of a pair-partner to detection i.
+	if(detct<0 || detct>=long(indvecs.size())) {
+	  cerr << "Error: merge_pairs attempting to query detct=" << detct << ", out of range 0-" << long(indvecs.size()) << " = " << detnum << "\n";
+	  return(8);
+	}
+	// Project detct into an arc-WCS style x,y coords centered on i.
+	distradec02(pairdets[i].RA, pairdets[i].Dec, pairdets[detct].RA, pairdets[detct].Dec, &dist, &pa);
+	dist *= 3600.0L; // Convert distance from degrees to arcsec.
+	xyind = xy_index(dist*sin(pa/DEGPRAD),dist*cos(pa/DEGPRAD),detct);
+	axyvec.push_back(xyind);
+	ppset.push_back(pairdets[detct]);
+	ppind.push_back({}); // We need these vectors mainly just to have some way to store the
+	                     // indices of mutually consistent pair partners on the next step
+      }
+      if(verbose>=2) cout << "Loaded axyvec and ppset vectors OK, with sizes " << axyvec.size() << " and " << ppset.size() << "\n";
+      if(axyvec.size() != ppset.size() || axyvec.size() != ppind.size()) {
+	cerr << "ERROR: vectors of projected and original\n";
+	cerr << "pair partner candidates do not have the same length!\n";
+	cerr << axyvec.size() << ", " << ppset.size() << ", and " << ppind.size() << " must all be the same, and are not!\n";
+	return(3);
+      }
+      // Perform n^2 search on the projected points stored in axyvec
+      // to find the largest subset that lie along a consistent line.
+      for(j=0; j<long(axyvec.size()); j++) {
+	dtref = ppset[j].MJD - pairdets[i].MJD; // Time from anchor detection i to pair-partner j.
+	if(dtref == 0.0l) {
+	  cerr << "ERROR: paired detections with no time separation!\n";
+	  cerr << fixed << setprecision(6) << "timej, timei, dtref = " << ppset[j].MJD << " " << pairdets[i].MJD << " " << dtref << "\n";
+	  cerr << "idstring and image for j, i: " << ppset[j].idstring << " " << ppset[j].image << " " << pairdets[i].idstring << " " << pairdets[i].image << "\n";
+	  return(4);
+	}
+	// Make sure corresponding index vector in ppset is empty
+	ppind[j] = {};
+	// Count additional pair partners (besides ppset[j]) that plausibly
+	// lie along the line defined by i and ppset[j].
+	if(DEBUG>=2) cout << "Counting consistent pair partners\n";
+	for(k=0; k<long(axyvec.size()); k++) {
+	  if(j!=k) {
+	    dt = ppset[k].MJD - pairdets[i].MJD; // Time from anchor detection i to pair-partner j.
+	    // Find out if the projected x,y coords scale with time from i
+	    // in a consistent way for detections j and k.
+	    dx = axyvec[k].x - axyvec[j].x*(dt/dtref);
+	    dy = axyvec[k].y - axyvec[j].y*(dt/dtref);
+	    dist = sqrt(dx*dx + dy*dy); 
+	    if(verbose>=3) cout << "Detection " << axyvec[j].index << ":" << axyvec[k].index << " dist = " << dist << "\n";
+	    if(dist < 2.0*maxgcr) {
+	      // Detections j, k, and i all lie along a plausibly
+	      // linear, constant-velocity trajectory on the sky.
+	      ppind[j].push_back(k); // Store detection k as possible tracklet partner for i and j.
+	    }
+	  }
+	}
+      }
+      // Now, ppset stores all the possible pair-partners of detection i,
+      // and ppind stores, for each one of these, the ppset indices of ADDITIONAL ones that
+      // lie on a potentially consistent trajectory with it: that is, are tracklet partners.
+      // Find which detection in ppset has the largest number of possible tracklet partners.
+      biggest_tracklet=-1;
+      tracklet_size=0;
+      for(j=0; j<long(ppset.size()); j++) {
+	if(long(ppind[j].size())+2 > tracklet_size) {
+	  tracklet_size = ppind[j].size()+2; //We add one for i, one for j, to get actual tracklet size
+	  biggest_tracklet = j;
+	  if(DEBUG>=2) cout << "bt = " << biggest_tracklet << ", size = " << tracklet_size << "\n";
+	} else if(DEBUG>=2) cout << "not the biggest\n";
+      }
+      if(verbose>=2 && biggest_tracklet>=0) cout << "Biggest tracklet is " << biggest_tracklet << ", which corresponds to " << axyvec[biggest_tracklet].index << ", with size " << tracklet_size << "\n";
+      istracklet=0; // Assume there is no tracklet until one is confirmed to exist.
+      if(tracklet_size < local_mintrkpts || tracklet_size<3) {
+	istracklet=0;
+      } else {
+	// Perform linear fits to x and y vs time.
+	// Load all the points from the biggest potential tracklet.
+	track_mrdi_vec={}; // We need this vector purely so we can do a time-sort.
+	                   // mrdi stands for MJD, RA, Dec, index
+	// Load the reference point
+	p3di = point3d_index(0.0l,0.0l,0.0l,i);
+	track_mrdi_vec.push_back(p3di);
+	// Load anchor point corresponding to biggest_tracklet
+	p3di = point3d_index(ppset[biggest_tracklet].MJD - pairdets[i].MJD,axyvec[biggest_tracklet].x,axyvec[biggest_tracklet].y,axyvec[biggest_tracklet].index);
+	track_mrdi_vec.push_back(p3di);
+	// Load the other points
+ 	for(j=0; j<long(ppind[biggest_tracklet].size()); j++) {
+	  p3di = point3d_index(ppset[ppind[biggest_tracklet][j]].MJD - pairdets[i].MJD,axyvec[ppind[biggest_tracklet][j]].x,axyvec[ppind[biggest_tracklet][j]].y,axyvec[ppind[biggest_tracklet][j]].index);
+	  track_mrdi_vec.push_back(p3di);
+	}
+	// Sort track_mrdi_vec by time.
+	sort(track_mrdi_vec.begin(), track_mrdi_vec.end(), lower_point3d_index_x());
+	// Load time, x, y, and index vectors from sorted track_mrdi_vec.
+	timevec=xvec=yvec={};
+	detindexvec={};
+	for(j=0;j<long(track_mrdi_vec.size());j++)
+	  {
+	    timevec.push_back(track_mrdi_vec[j].x);
+	    xvec.push_back(track_mrdi_vec[j].y);
+	    yvec.push_back(track_mrdi_vec[j].z);
+	    detindexvec.push_back(track_mrdi_vec[j].index);
+	  }
+	if(track_mrdi_vec.size() != timevec.size() || track_mrdi_vec.size() != xvec.size() || track_mrdi_vec.size() != yvec.size() || track_mrdi_vec.size() != detindexvec.size()) {
+	  cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
+	  cerr << "Lengths of track_mrdi_vec, timevec, xvec, yvec, and detindexvec:\n";
+	  cerr << track_mrdi_vec.size() << ", " << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
+	  return(6);
+	}
+ 	if(DEBUG>=2) {
+	  cout << "First iteration linear fit vectors:\n";
+	  for(j=0; j<long(timevec.size()); j++) {
+	    cout << detindexvec[j] << " " << timevec[j] << " " << xvec[j] << " " << yvec[j] << "\n";
+	  }
+	}
+
+	// Perform fit to projected x coordinate as a function of time
+	linfituw01(timevec, xvec, slopex, interceptx);
+ 	// Perform fit to projected y coordinate as a function of time
+	linfituw01(timevec, yvec, slopey, intercepty);
+	// Load vector of residuals
+	fiterr = {};
+	GCR=0.0l;
+	for(j=0; j<long(timevec.size()); j++) {
+	  double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+	  GCR += square_err;
+	  fiterr.push_back(sqrt(square_err));
+	}
+	GCR = sqrt(GCR/double(timevec.size()));
+	// Ditch duplicate times, if there are any
+	istimedup=1; // Guilty until proven innocent
+	while(istimedup==1 && timevec.size() > 3 && long(timevec.size()) > local_mintrkpts) {
+	  istimedup=0;
+	  j=1;
+	  while(j<long(timevec.size()) && istimedup==0) {
+	    if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+	      istimedup=1; // Point j and j-1 are time-duplicates.
+	      // Mark for rejection whichever one has the largest fitting error
+	      if(fiterr[j]>=fiterr[j-1]) worstpoint = j; 
+	      else worstpoint = j-1;
+	    }
+	    j++;
+	  }
+	  if(istimedup==1) {
+	    // Reject the bad point
+	    trkptnum=timevec.size();
+	    for(j=worstpoint; j<trkptnum-1; j++) {
+	      timevec[j] = timevec[j+1];
+	      xvec[j] = xvec[j+1];
+	      yvec[j] = yvec[j+1];
+	      detindexvec[j] = detindexvec[j+1];
+	    }
+	    trkptnum--;
+	    timevec.resize(trkptnum);
+	    xvec.resize(trkptnum);
+	    yvec.resize(trkptnum);
+	    detindexvec.resize(trkptnum);
+	    if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+	      cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
+	      cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
+	      cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
+	      return(6);
+	    }
+	    // Re-do linear fit
+	    // Perform fit to projected x coordinate as a function of time
+	    linfituw01(timevec, xvec, slopex, interceptx);
+	    // Perform fit to projected y coordinate as a function of time
+	    linfituw01(timevec, yvec, slopey, intercepty);
+	    // Load vector of residuals
+	    fiterr = {};
+	    GCR=0.0l;
+	    for(j=0; j<long(timevec.size()); j++) {
+	      double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+	      GCR += square_err;
+	      fiterr.push_back(sqrt(square_err));
+	    }
+	    GCR = sqrt(GCR/double(timevec.size()));
+	  }
+	}
+	// Recalculate istimedup, now that the loop is finished.
+	istimedup=0;
+	j=1;
+	while(j<long(timevec.size()) && istimedup==0) {
+	  if(fabs(timevec[j] - timevec[j-1]) < IMAGETIMETOL/SOLARDAY) {
+	    istimedup=1; // Point j and j-1 are time-duplicates.
+	  }
+	  j++;
+	}
+	// Find worst error
+	worsterr = 0.0l;
+	for(j=0; j<long(timevec.size()); j++) {
+	  if(fiterr[j]>worsterr) {
+	    worsterr = fiterr[j];
+	    worstpoint = j;
+	  }
+	}
+	// Reject successive points until either there are only three left
+	// or the worst error drops below maxgcr.
+	while(worsterr>maxgcr && timevec.size() > 3 && long(timevec.size()) > local_mintrkpts && istimedup<=0) {
+	  // Reject the worst point
+	  trkptnum=timevec.size();
+	  for(j=worstpoint; j<trkptnum-1; j++) {
+	    timevec[j] = timevec[j+1];
+	    xvec[j] = xvec[j+1];
+	    yvec[j] = yvec[j+1];
+	    detindexvec[j] = detindexvec[j+1];
+	  }
+	  trkptnum--;
+	  timevec.resize(trkptnum);
+	  xvec.resize(trkptnum);
+	  yvec.resize(trkptnum);
+	  detindexvec.resize(trkptnum);	  
+	  if(timevec.size() != xvec.size() || timevec.size() != yvec.size() || timevec.size() != detindexvec.size()) {
+	    cerr << "ERROR: vector length mismatch in vectors for tracklet-fitting!\n";
+	    cerr << "Lengths of timevec, xvec, yvec, and detindexvec:\n";
+	    cerr  << timevec.size()  << ", " << xvec.size()  << ", " << yvec.size()  << ", " << detindexvec.size() << "\n";
+	    return(6);
+	  }
+	  // Perform fit to projected x coordinate as a function of time
+	  linfituw01(timevec, xvec, slopex, interceptx);
+	  // Perform fit to projected y coordinate as a function of time
+	  linfituw01(timevec, yvec, slopey, intercepty);
+	  // Load vector of residuals
+	  fiterr = {};
+	  GCR=0.0l;
+	  for(j=0; j<long(timevec.size()); j++) {
+	    double square_err = DSQUARE(timevec[j]*slopex+interceptx-xvec[j]) + DSQUARE(timevec[j]*slopey+intercepty-yvec[j]);
+	    GCR += square_err;
+	    fiterr.push_back(sqrt(square_err));
+	  }
+	  GCR = sqrt(GCR/double(timevec.size()));
+	  // Find worst error.  
+	  worsterr = 0.0l;
+	  if(fiterr.size() != timevec.size()) {
+	    cerr << "Error: fiterr and timevec have different sizes: " << fiterr.size() << "vs. " << timevec.size() << "\n";
+	    return(7);
+	  }
+	  for(j=0; j<long(timevec.size()); j++) {
+	    if(fiterr[j]>worsterr) {
+	      worsterr = fiterr[j];
+	      worstpoint = j;
+	    }
+	  }
+	}
+	// See if we've rejected the anchor point i
+	istracklet=0;
+	for(j=0; j<long(detindexvec.size()); j++) {
+	  if(detindexvec[j] == i) {
+	    // Anchor point has not been rejected!
+	    istracklet=1;
+	  }
+	}
+	if(istimedup>0) {
+	  istracklet=0; // Could not eliminate time-duplicates, tracklet is no good.
+	  if(verbose==2) {
+	    cout << "istimedup = " << istimedup << "\n";
+	    trkptnum=timevec.size();
+	    for(j=0; j<trkptnum; j++) {
+	      cout << "j=" << j << " " << timevec[j] << " " << xvec[j] << " " << yvec[j] << " " << detindexvec[j] << "\n";
+	    }
+	  }
+	}
+	if(istracklet==1 && worsterr<=maxgcr && timevec.size()>=3 && long(timevec.size())>=local_mintrkpts) {
+	  // We succeeded in finding a tracklet with no time-duplicates, and
+	  // no outliers beyond maxgcr, and we have not rejected the anchor point.
+	  // Evaluate angular velocity and arc length,
+	  // to make sure it meets all validity criteria.
+	  instep = (timevec.size()-1)/4;
+	  rp1 = instep;
+	  rp2 = timevec.size()-1-instep;
+	  if(rp1==rp2) {
+	    cerr << "ERROR: both representative points for a tracklet are the same!\n";
+	    cerr << "size, instep, rp1, rp2: " << timevec.size() << " " << instep << " " << rp1 << " " << rp2 << "\n";
+	    return(5);
+	  }
+	  // Calculate angular velocity in deg/day. The slope values
+	  // correspond to velocities in arcsec/day.
+	  angvel = sqrt(slopex*slopex + slopey*slopey)/3600.0l;
+	  
+	  // Determine improved RA, Dec based on tracklet fit for the representative points
+	  // Calculated projected x, y at rp1
+	  dx = timevec[rp1]*slopex + interceptx;
+	  dy = timevec[rp1]*slopey + intercepty;
+	  // Calculate equivalent celestial position angle.
+	  if(dx==0l && dy>=0l) pa = 0.0l;
+	  else if(dx==0l && dy<0l) pa = M_PI;
+	  else if(dx>0l) pa = M_PI/2.0l - atan(dy/dx);
+	  else if(dx<0l) pa = 3.0l*M_PI/2.0l - atan(dy/dx);
+	  else {
+	    cerr << "ERROR: logical impossibility while trying to solve for PA\n";
+	    cerr << "dx = " << dx << " dy = " << dy << "\n";
+	  }
+	  dist = sqrt(dx*dx + dy*dy)/3600.0l; // renders distance in degrees, not arcsec.
+	  pa*=DEGPRAD; // position angle in degrees, not radians.
+	  arc2cel01(pairdets[i].RA, pairdets[i].Dec, dist, pa, outra1, outdec1);
+	  if(!isnormal(outra1)) {
+	    cerr << "NAN WARNING: dx, dy, dist, pa: " << dx << " " << dy << " " << dist << " " << pa << "\n";
+	  }
+	  // Calculated projected x, y at rp2
+	  dx = timevec[rp2]*slopex + interceptx;
+	  dy = timevec[rp2]*slopey + intercepty;
+	  // Calculate equivalent celestial position angle.
+	  if(dx==0l && dy>=0l) pa = 0.0l;
+	  else if(dx==0l && dy<0l) pa = M_PI;
+	  else if(dx>0l) pa = M_PI/2.0l - atan(dy/dx);
+	  else if(dx<0l) pa = 3.0l*M_PI/2.0l - atan(dy/dx);
+	  else {
+	    cerr << "ERROR: logical impossibility while trying to solve for PA\n";
+	    cerr << "dx = " << dx << " dy = " << dy << "\n";
+	  }
+	  dist = sqrt(dx*dx + dy*dy)/3600.0l; // renders distance in degrees, not arcsec.
+	  pa*=DEGPRAD; // position angle in degrees, not radians.
+	  arc2cel01(pairdets[i].RA, pairdets[i].Dec, dist, pa, outra2, outdec2);
+	  // Calculate total angular arc
+	  distradec02(outra1, outdec1, outra2, outdec2, &dist, &pa);
+	  dist *= 3600.0l;
+	  // Note: it can be argued that the dist calculated above is not really the total
+	  // angular arc, because it's the span between the two representative points instead
+	  // of all the way from the beginning of the tracklet to its end. There are at
+	  // least two alternative ways of calculating such a value: use the actual
+	  // extreme points, or just multiply the total time span by the angular velocity.
+	  // I haven't been able to convince myself that either of them is a better idea
+	  // than the above. Here's how one might do them, just in case:
+	  // distradec02(pairdets[detindexvec[0]].RA, pairdets[detindexvec[0]].Dec, pairdets[detindexvec[detindexvec.size()-1]].RA, pairdets[detindexvec[detindexvec.size()-1]].Dec, &dist, &pa);
+	  // dist *= 3600.0l
+	  // OR:
+	  // dist = angvel*(pairdets[detindexvec[detindexvec.size()-1]].MJD - pairdets[detindexvec[0]].MJD)*3600.0l;
+	  if(dist>=minarc && angvel>=minvel && angvel<=maxvel) {
+	    // This tracklet meets all criteria
+	    // Write its anchor detection index (i),
+	    // the number of points, and the GCR to ldivec. Note ldi means long, double, index.
+	    lelem = long(timevec.size());
+	    delem = GCR;
+	    index = i;
+	    one_ldi = longpd_index(lelem,delem,index);
+	    ldivec.push_back(one_ldi);
+	    indvecs2[i] = detindexvec; // Unlike indvecs, indvecs2 includes the anchor point itself.
+	  } else {
+	    istracklet=0;
+	    if(verbose>=1) cout << "A tracklet was rejected: arc = " << setprecision(3) << fixed << dist << " < " << minarc << " or angvel = " << setprecision(5) << fixed << angvel << " not in range " << setprecision(3) << fixed << minvel << "-" << maxvel << "\n";
+	  }
+	  // Close if-statement checking number of points and GCR.
+	} else istracklet=0;
+	// Close else-statement confirming there was a candidate for
+	// being an aligned tracklet.
+      }
+      // Close if-statement checking that detection i has more than
+      // one pair-partner, and hence COULD be part of a tracklet
+    } else istracklet=0;
+    // Close loop over all detections
+  }
+  // Sort the vector ldivec, which will put the detections that
+  // anchor tracklets with many detections and low GCR at the end.
+  sort(ldivec.begin(), ldivec.end(), lower_longpd_index());
+
+  sort(ldivec.begin(), ldivec.end(), lower_longpd_index());
+  if(verbose>=2) {
+    for(i=0;i<long(ldivec.size());i++) {
+      cout << "ldivec[" << i << "]: " << ldivec[i].lelem << " " << ldivec[i].delem << " " << ldivec[i].index << "\n";
+    }
+  }
+  // LOOP BACK FOR FINAL WRITING OF TRACKLETS WITH MORE THAN TWO POINTS
+  for(i=long(ldivec.size()-1); i>=0; i--) {
+    pdct = ldivec[i].index;
+    local_mintrkpts = double(image_overlap[pairdets[pdct].image])*trkfrac + 0.5;
+    if(local_mintrkpts < mintrkpts) local_mintrkpts = mintrkpts;
+    // Load vectors for linear fitting
+    if(long(indvecs2[pdct].size()) >= local_mintrkpts && indvecs2[pdct].size()>=3) {
+      // Sanity check: this condition should always be satisfied.
+      // Project all the detections onto an arc-WCS style x,y coords centered on pdct.
+      timevec=xvec=yvec={};
+      detindexvec={};
+      for(j=0; j<long(indvecs2[pdct].size()); j++) { // Iterates over ALL points in the tracklet,
+	detct = indvecs2[pdct][j];                   // including the anchor point.
+	if(long(indvecs[detct].size()) > 0) {  // Point has not previously been claimed by an exclusive tracklet
+	  distradec02(pairdets[pdct].RA, pairdets[pdct].Dec, pairdets[detct].RA, pairdets[detct].Dec, &dist, &pa);
+	  dist *= 3600.0L; // Convert distance from degrees to arcsec.
+	  timevec.push_back(pairdets[detct].MJD - pairdets[pdct].MJD);
+	  xvec.push_back(dist*sin(pa/DEGPRAD));
+	  yvec.push_back(dist*cos(pa/DEGPRAD));
+	  detindexvec.push_back(detct);
+	}
+      }
+      if(long(timevec.size()) >= local_mintrkpts && timevec.size() >= 3) {
+	// Perform fit to projected x coordinate as a function of time
+	linfituw01(timevec, xvec, slopex, interceptx);
+	// Perform fit to projected y coordinate as a function of time
+	linfituw01(timevec, yvec, slopey, intercepty);
+	// Select points that will represent this tracklet.
+	instep = (timevec.size()-1)/4;
+	rp1 = instep;
+	rp2 = timevec.size()-1-instep;
+	if(rp1==rp2) {
+	  cerr << "ERROR: both representative points for a tracklet are the same!\n";
+	  cerr << "size, instep, rp1, rp2: " << timevec.size() << " " << instep << " " << rp1 << " " << rp2 << "\n";
+	  return(5);
+	}
+	// Calculate angular velocity in deg/day. The slope values
+	// correspond to velocities in arcsec/day.
+	angvel = sqrt(slopex*slopex + slopey*slopey)/3600.0l;
+
+	// Determine improved RA, Dec based on tracklet fit for the representative points
+	// Calculated projected x, y at rp1
+	dx = timevec[rp1]*slopex + interceptx;
+	dy = timevec[rp1]*slopey + intercepty;
+	// Calculate equivalent celestial position angle.
+	if(dx==0l && dy>=0l) pa = 0.0l;
+	else if(dx==0l && dy<0l) pa = M_PI;
+	else if(dx>0l) pa = M_PI/2.0l - atan(dy/dx);
+	else if(dx<0l) pa = 3.0l*M_PI/2.0l - atan(dy/dx);
+	else {
+	  cerr << "ERROR: logical impossibility while trying to solve for PA\n";
+	  cerr << "dx = " << dx << " dy = " << dy << "\n";
+	}
+	dist = sqrt(dx*dx + dy*dy)/3600.0l; // renders distance in degrees, not arcsec.
+	pa*=DEGPRAD; // position angle in degrees, not radians.
+	arc2cel01(pairdets[pdct].RA, pairdets[pdct].Dec, dist, pa, outra1, outdec1);
+	if(!isnormal(outra1)) {
+	  cerr << "NAN WARNING: dx, dy, dist, pa: " << dx << " " << dy << " " << dist << " " << pa << "\n";
+	}
+	// Calculated projected x, y at rp2
+	dx = timevec[rp2]*slopex + interceptx;
+	dy = timevec[rp2]*slopey + intercepty;
+	// Calculate equivalent celestial position angle.
+	if(dx==0l && dy>=0l) pa = 0.0l;
+	else if(dx==0l && dy<0l) pa = M_PI;
+	else if(dx>0l) pa = M_PI/2.0l - atan(dy/dx);
+	else if(dx<0l) pa = 3.0l*M_PI/2.0l - atan(dy/dx);
+	else {
+	  cerr << "ERROR: logical impossibility while trying to solve for PA\n";
+	  cerr << "dx = " << dx << " dy = " << dy << "\n";
+	}
+	dist = sqrt(dx*dx + dy*dy)/3600.0l; // renders distance in degrees, not arcsec.
+	pa*=DEGPRAD; // position angle in degrees, not radians.
+	arc2cel01(pairdets[pdct].RA, pairdets[pdct].Dec, dist, pa, outra2, outdec2);
+	// Calculate total angular arc
+	distradec02(outra1, outdec1, outra2, outdec2, &dist, &pa);
+	dist *= 3600.0l;
+	// Note: it can be argued that the dist calculated above is not really the total
+	// angular arc, because it's the span between the two representative points instead
+	// of all the way from the beginning of the tracklet to its end. There are at
+	// least two alternative ways of calculating such a value: use the actual
+	// extreme points, or just multiply the total time span by the angular velocity.
+	// I haven't been able to convince myself that either of them is a better idea
+	// than the above. Here's how one might do them, just in case:
+	// distradec02(pairdets[detindexvec[0]].RA, pairdets[detindexvec[0]].Dec, pairdets[detindexvec[detindexvec.size()-1]].RA, pairdets[detindexvec[detindexvec.size()-1]].Dec, &dist, &pa);
+	// dist *= 3600.0l
+	// OR:
+	// dist = angvel*(pairdets[detindexvec[detindexvec.size()-1]].MJD - pairdets[detindexvec[0]].MJD)*3600.0l;
+	if(dist>=minarc && angvel>=minvel && angvel<=maxvel) {
+	  // Write out representative pair, followed by RA, Dec and the total number of constituent points
+	  track1 = tracklet(pairdets[detindexvec[rp1]].image,outra1,outdec1,pairdets[detindexvec[rp2]].image,outra2,outdec2,detindexvec.size(),tracklets.size());
+	  tracklets.push_back(track1);
+	  if(verbose>=2) {
+	    cout << "Writing tracklet " << tracklets.size() << " " << pairdets[detindexvec[rp1]].image << " " << outra1 << " " << outdec1 << " " << detindexvec.size() << "\n";
+	  }
+	  for(j=0; j<long(detindexvec.size()); j++) {
+	    onepair = longpair(tracklets[tracklets.size()-1].trk_ID,detindexvec[j]);
+	    // Wipe indvecs entry for all sources, if tracklet is long enough to be exclusive.
+	    // max_netl is the minimum non-exclusive tracklet length, which defaults to 2,
+	    // but can be set to larger values by the user. Tracklets with this number of points
+	    // or fewer are allowed unlimited overlap; all longer tracklets are exclusive.
+	    if(long(detindexvec.size()) > max_netl) indvecs[detindexvec[j]] = {};
+	    trk2det.push_back(onepair);
+	  }
+	}
+      }
+    }
+  }
+  if(mintrkpts==2) {
+    // Also write out pairs.
+    for(i=0;i<detnum;i++) {
+      local_mintrkpts = double(image_overlap[pairdets[i].image])*trkfrac + 0.5;
+      if(local_mintrkpts < mintrkpts) local_mintrkpts = mintrkpts;
+      if(indvecs[i].size()>0 && local_mintrkpts==2) {
+	for(j=0; j<long(indvecs[i].size()); j++) {
+	  k=indvecs[i][j];
+	  // Calculate angular arc and angular velocity
+	  distradec02(pairdets[i].RA,pairdets[i].Dec,pairdets[k].RA,pairdets[k].Dec, &dist, &pa);
+	  angvel = dist/fabs(pairdets[i].MJD-pairdets[k].MJD); // Degrees per day
+	  dist *= 3600.0l; // Arcseconds
+	  if(indvecs[k].size()>0 && pairdets[k].MJD>pairdets[i].MJD && angvel>=minvel && dist>=minarc && angvel<=maxvel) {
+	    track1 = tracklet(pairdets[i].image,pairdets[i].RA,pairdets[i].Dec,pairdets[k].image,pairdets[k].RA,pairdets[k].Dec,2,tracklets.size());
+	    tracklets.push_back(track1);
+	    onepair = longpair(tracklets.size()-1,i);
+	    trk2det.push_back(onepair);
+	    onepair = longpair(tracklets.size()-1,k);
+	    trk2det.push_back(onepair);
+	  } else if(angvel<minvel || dist<minarc) {
+	    if(verbose>=1) cout << "A pair was rejected: arc = " << setprecision(3) << fixed << dist << " < " << minarc << " or angvel = " << setprecision(5) << fixed << angvel << " not in range " << setprecision(3) << fixed << minvel << "-" << maxvel << "\n";
+	  }
+	}
+      }
+    }
+  }
+  return(0);
+}
+
+
 
 
 //merge_trailpairs: February 20, 2024: Given the output from find_pairs,
@@ -26763,6 +29986,7 @@ int make_tracklets3(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
   cout << "Image radius: " << config.imagerad << " degrees\n";
   cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
   if(config.forcerun) {
     cout << "forcerun has been invoked: execution will attempt to push through\n";
     cout << "any errors that are not immediately fatal, including those that\n";
@@ -26920,6 +30144,7 @@ int make_tracklets4(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
   cout << "Image radius: " << config.imagerad << " degrees\n";
   cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
   if(config.forcerun) {
     cout << "forcerun has been invoked: execution will attempt to push through\n";
     cout << "any errors that are not immediately fatal, including those that\n";
@@ -26979,6 +30204,7 @@ int make_tracklets5(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
   cout << "Image radius: " << config.imagerad << " degrees\n";
   cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
   if(config.forcerun) {
     cout << "forcerun has been invoked: execution will attempt to push through\n";
     cout << "any errors that are not immediately fatal, including those that\n";
@@ -27018,7 +30244,7 @@ int make_tracklets5(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   return(0);
 }
 
-// make_tracklets6: July 28, 2025: Like make_tracklets5, but resolves conflicts between
+// make_tracklets6: July 31, 2025: Like make_tracklets5, but resolves conflicts between
 // overlapping exclusive trackles on a point-by-point basis, instead of discarding the
 // inferior tracklet of an overlapping pair in its entirety.
 int make_tracklets6(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det)
@@ -27039,6 +30265,7 @@ int make_tracklets6(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
   cout << "Image radius: " << config.imagerad << " degrees\n";
   cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
   if(config.forcerun) {
     cout << "forcerun has been invoked: execution will attempt to push through\n";
     cout << "any errors that are not immediately fatal, including those that\n";
@@ -27077,6 +30304,614 @@ int make_tracklets6(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTra
   }
   return(0);
 }
+
+// make_tracklets6b: August 01, 2025: Like make_tracklets5, but resolves conflicts between
+// overlapping exclusive trackles on a point-by-point basis, instead of discarding the
+// inferior tracklet of an overlapping pair in its entirety. Note: this function was
+// formerly known as make_tracklets7, but that name was repurposed to refer to a more
+// advanced version later on. 
+int make_tracklets6b(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det)
+{
+  cout << "Inside make_tracklets7\n";
+  long i=0;
+  std::vector <longpair> pairvec;
+  std::vector <vector <long>> indvecs;
+  
+  // Echo config struct
+  cout << "Configuration parameters for new make_tracklets:\n";
+  cout << "Min. number of tracklet points: " << config.mintrkpts << "\n";
+  cout << "Time-tolerance for matching detections on the same image: " << config.imagetimetol << " days (" << config.imagetimetol*SOLARDAY << " seconds)\n";
+  cout << "Maximum angular velocity: " << config.maxvel << " deg/day\n";
+  cout << "Minimum angular velocity: " << config.minvel << " deg/day\n";
+  cout << "Minimum angular arc: " << config.minarc << " arcsec\n";
+  cout << "Maximum inter-image time interval: " << config.maxtime << " days (" << config.maxtime*1440.0 << " minutes)\n";
+  cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
+  cout << "Image radius: " << config.imagerad << " degrees\n";
+  if(config.use_lowmem==1) {
+    cout << "The more sophisticated, memory-efficient algorithm will be used\n";
+    cout << "Matching radius for image overlap calculation: " << config.matchrad << " degrees\n";
+    cout << "Min. number of tracklet points as a fraction of image overlap: " << config.trkfrac << "\n";
+  }
+  cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
+  if(config.forcerun) {
+    cout << "forcerun has been invoked: execution will attempt to push through\n";
+    cout << "any errors that are not immediately fatal, including those that\n";
+    cout << "could produce inaccurate final results.\n";
+  }
+  if(config.verbose) cout << "Verbose output has been requested\n";
+  
+  int status = load_image_indices(image_log, detvec, config.imagetimetol, config.forcerun);
+  if(status!=0) {
+    cerr << "ERROR: failed to load_image_indices from detection vector\n";
+    return(status);
+  }
+  
+  // Echo detection vector
+  //for(i=0;i<detvec.size();i++) {
+  //  cout << "det " << i << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << " " << detvec[i].mag  << " " << detvec[i].obscode << " " << detvec[i].image << "\n";
+  //}
+  if(config.verbose) {
+    // Echo image log
+    for(i=0;i<long(image_log.size());i++) {
+      cout << "image " << i << " " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].X << " " << image_log[i].obscode  << " " << image_log[i].startind  << " " << image_log[i].endind << "\n";
+    }
+  }
+
+  if(config.use_lowmem==1) {
+    // USE THE NEW (July 31, 2025) memory-efficient algorithms implemented in find_pairs4.
+    // NOTE: little difference is expected between the algorithms except in the case of deep drilling fields.
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    cout << "About to call find_pairs4\n";
+    status = find_pairs4(detvec, image_log, pairdets, tracklets, trk2det, config.mintrkpts, config.max_netl, config.mintime, config.maxtime, config.imagetimetol, config.imagerad, config.minvel, config.maxvel, config.minarc, config.matchrad, config.trkfrac, config.maxgcr, config.verbose);
+
+    cout << "find_pairs4 completed with status " << status << "\n";
+    return(status);
+    if(status!=0) {
+      cerr << "ERROR: find_pairs4 reports failure status " << status << "\n";
+      return(status);
+    }
+  } else {
+    // USE THE OLDER, SIMPLER, and (possibly) more robust algorithms,
+    // first fully implemented in make_tracklets3 on about September 13, 2024.
+    if(config.mintrkpts==2) {
+      // Simply output to main pairdets vector:
+      // there will be no need to revise pairdets afterwards.
+
+      // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+      // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+      // and the vector pairvec of type longpair, giving all the pairs of detections.
+      status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+      if(status!=0) {
+	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+	return(status);
+      }
+
+      // Sanity-check indvecs
+      cout << "make_tracklets is sanity-checking indvecs\n";
+      long detnum = indvecs.size();
+      long detct=0;
+      for(detct=0; detct<detnum; detct++) {
+	for(i=0; i<long(indvecs[detct].size()); i++) {
+	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	    cerr << "Acceptable range is 0 to " << detnum << "\n";
+	    return(9);
+	  }
+	}
+      }
+      cout << "Sanity-check finished\n";
+  
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+
+      if(status!=0) {
+	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
+	return(status);
+      } else cout << "merge_pairs finished OK\n";
+    } else {
+      // The minimum number of tracklet points is more than two, so pairdets will
+      // need to be culled after its initial construction, to eliminate detections
+      // that didn't contribute to a tracklet with more than two points. Hence, we
+      // load a temporary version of pairdets, which must be culled afterwards.
+
+      vector <hldet> pairdets_temp;
+    
+      // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+      // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+      // and the vector pairvec of type longpair, giving all the pairs of detections.
+      status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+      if(status!=0) {
+	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+	return(status);
+      }
+
+      // Sanity-check indvecs
+      cout << "make_tracklets is sanity-checking indvecs\n";
+      long detnum = indvecs.size();
+      long detct=0;
+      for(detct=0; detct<detnum; detct++) {
+	for(i=0; i<long(indvecs[detct].size()); i++) {
+	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	    cerr << "Acceptable range is 0 to " << detnum << "\n";
+	    return(9);
+	  }
+	}
+      }
+      cout << "Sanity-check finished\n";
+  
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+
+      if(status!=0) {
+	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
+	return(status);
+      } else cout << "merge_pairs finished OK\n";
+
+      // Load culled version of pairdets_temp into the final pairdets vector,
+      // and re-write the indices of the trk2det vector accordingly
+    
+      // Create a vector of -1s, of the same length as pairdets_temp.
+      vector <long> detloaded;
+      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      if(detloaded.size() != pairdets_temp.size()) {
+	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
+	return(5);
+      }
+      pairdets={};
+      for(i=0; i<long(trk2det.size()); i++) {
+	long thisdet = trk2det[i].i2;
+	if(detloaded[thisdet]==-1) {
+	  // This detection has not yet been loaded. Load it now.
+	  pairdets.push_back(pairdets_temp[thisdet]);
+	  // Re-assign the trk2det index appropriately
+	  trk2det[i].i2 = long(pairdets.size()-1);
+	  // Mark it as loaded.
+	  detloaded[thisdet] = trk2det[i].i2;
+	} else {
+	  // This detection has already been loaded to the pairdets vector.
+	  // Re-assign the trk2det index appropriately.
+	  trk2det[i].i2 = detloaded[thisdet];
+	}
+      }
+    }
+  }
+
+  return(0);
+}
+
+
+// make_tracklets6c: August 11, 2025: Like make_tracklets6b, but uses find_pairs5. Resolves conflicts between
+// overlapping exclusive trackles on a point-by-point basis, instead of discarding the
+// inferior tracklet of an overlapping pair in its entirety. Note: this function was
+// originally named make_tracklets8 (as make_tracklets6b was called make_tracklets7).
+// Both renamings (make_tracklets7 -> make_tracklets6b and make_tracklets8 -> make_tracklets6c)
+// were motivated by the desire to maintain a self-consistent sequence without deleting
+// functions known to work, and yet produce a new more advanced function, named make_tracklets7 to
+// avoid renaming in programs that called the old make_tracklets7.
+int make_tracklets6c(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det)
+{
+  cout << "Inside make_tracklets8\n";
+  long i=0;
+  std::vector <longpair> pairvec;
+  std::vector <vector <long>> indvecs;
+  std::vector <int> image_overlap;
+  
+  // Echo config struct
+  cout << "Configuration parameters for new make_tracklets:\n";
+  cout << "Min. number of tracklet points: " << config.mintrkpts << "\n";
+  cout << "Time-tolerance for matching detections on the same image: " << config.imagetimetol << " days (" << config.imagetimetol*SOLARDAY << " seconds)\n";
+  cout << "Maximum angular velocity: " << config.maxvel << " deg/day\n";
+  cout << "Minimum angular velocity: " << config.minvel << " deg/day\n";
+  cout << "Minimum angular arc: " << config.minarc << " arcsec\n";
+  cout << "Maximum inter-image time interval: " << config.maxtime << " days (" << config.maxtime*1440.0 << " minutes)\n";
+  cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
+  cout << "Image radius: " << config.imagerad << " degrees\n";
+  if(config.use_lowmem==1) {
+    cout << "The more sophisticated, memory-efficient algorithm will be used\n";
+    cout << "Matching radius for image overlap calculation: " << config.matchrad << " degrees\n";
+    cout << "Min. number of tracklet points as a fraction of image overlap: " << config.trkfrac << "\n";
+  }
+  cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
+  if(config.forcerun) {
+    cout << "forcerun has been invoked: execution will attempt to push through\n";
+    cout << "any errors that are not immediately fatal, including those that\n";
+    cout << "could produce inaccurate final results.\n";
+  }
+  if(config.verbose) cout << "Verbose output has been requested\n";
+  
+  int status = load_image_indices(image_log, detvec, config.imagetimetol, config.forcerun);
+  if(status!=0) {
+    cerr << "ERROR: failed to load_image_indices from detection vector\n";
+    return(status);
+  }
+  
+  // Echo detection vector
+  //for(i=0;i<detvec.size();i++) {
+  //  cout << "det " << i << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << " " << detvec[i].mag  << " " << detvec[i].obscode << " " << detvec[i].image << "\n";
+  //}
+  if(config.verbose) {
+    // Echo image log
+    for(i=0;i<long(image_log.size());i++) {
+      cout << "image " << i << " " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].X << " " << image_log[i].obscode  << " " << image_log[i].startind  << " " << image_log[i].endind << "\n";
+    }
+  }
+
+  if(config.use_lowmem==1) {
+    // USE THE NEW (August 11, 2025) memory-efficient algorithms implemented in find_pairs5.
+    // NOTE: little difference is expected between the algorithms except in the case of deep drilling fields.
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    cout << "About to call find_pairs5\n";
+    status = find_pairs5(detvec, image_log, pairdets, tracklets, trk2det, config.mintrkpts, config.max_netl, config.mintime, config.maxtime, config.imagetimetol, config.imagerad, config.minvel, config.maxvel, config.minarc, config.matchrad, config.trkfrac, config.maxgcr, config.verbose);
+
+    cout << "find_pairs5 completed with status " << status << "\n";
+    return(status);
+    if(status!=0) {
+      cerr << "ERROR: find_pairs5 reports failure status " << status << "\n";
+      return(status);
+    }
+  } else {
+    // USE THE OLDER, SIMPLER, and (possibly) more robust algorithms,
+    // first fully implemented in make_tracklets3 on about September 13, 2024.
+    // Note: pairdets will need to be culled after its initial construction, to eliminate 
+    // detections that originally contributed to two-point tracklets that were later
+    // superseded and didn't contribute to any tracklet in the final output set.
+    // Load a temporary version of pairdets, which must be culled afterwards.
+
+    vector <hldet> pairdets_temp;
+    
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+    if(status!=0) {
+      cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+      return(status);
+    }
+
+    // Sanity-check indvecs
+    cout << "make_tracklets is sanity-checking indvecs\n";
+    long detnum = indvecs.size();
+    long detct=0;
+    for(detct=0; detct<detnum; detct++) {
+      for(i=0; i<long(indvecs[detct].size()); i++) {
+	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	  cerr << "Acceptable range is 0 to " << detnum << "\n";
+	  return(9);
+	}
+      }
+    }
+    cout << "Sanity-check finished\n";
+
+    // Calculate the extent of image overlap, to avoid writing out two-point tracklets
+    // in areas with large numbers of overlapping images.
+    image_overlap={};
+    status = calculate_overlap(detvec, image_log, config.mintime, config.maxtime, config.maxvel, config.imagerad, config.matchrad, image_overlap, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: calculate_overlap() returned with error status " << status << "\n";
+      return(status);
+    }
+
+    status = merge_pairs3(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, image_overlap, config.trkfrac, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: merge_pairs3 reports failure status " << status << "\n";
+      return(status);
+    } else cout << "merge_pairs3 finished OK\n";
+
+    // Load culled version of pairdets_temp into the final pairdets vector,
+    // and re-write the indices of the trk2det vector accordingly
+    
+    // Create a vector of -1s, of the same length as pairdets_temp.
+    vector <long> detloaded;
+    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    if(detloaded.size() != pairdets_temp.size()) {
+      cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
+      return(5);
+    }
+    pairdets={};
+    for(i=0; i<long(trk2det.size()); i++) {
+      long thisdet = trk2det[i].i2;
+      if(detloaded[thisdet]==-1) {
+	// This detection has not yet been loaded. Load it now.
+	pairdets.push_back(pairdets_temp[thisdet]);
+	// Re-assign the trk2det index appropriately
+	trk2det[i].i2 = long(pairdets.size()-1);
+	// Mark it as loaded.
+	detloaded[thisdet] = trk2det[i].i2;
+      } else {
+	// This detection has already been loaded to the pairdets vector.
+	// Re-assign the trk2det index appropriately.
+	trk2det[i].i2 = detloaded[thisdet];
+      }
+    }
+  }
+  return(0);
+}
+
+
+// make_tracklets7: August 20, 2025: Combines the options avaialable
+// in make_tracklets6b and make_tracklets6c, with selection via the
+// config.use_lowmem parameter. Operation of the parameter is as follows:
+// config.use_lowmem=0  --- equivalent to config.use_lowmem=0 in make_tracklets6c
+// config.use_lowmem=1  --- equivalent to config.use_lowmem=1 in make_tracklets6c
+// config.use_lowmem=2  --- equivalent to config.use_lowmem=0 in make_tracklets6b (and to make_tracklets3)
+// config.use_lowmem=3  --- equivalent to config.use_lowmem=1 in make_tracklets6b
+int make_tracklets7(vector <hldet> &detvec, vector <hlimage> &image_log, MakeTrackletsConfig config, vector <hldet> &pairdets,vector <tracklet> &tracklets, vector <longpair> &trk2det)
+{
+  cout << "Inside make_tracklets8\n";
+  long i=0;
+  std::vector <longpair> pairvec;
+  std::vector <vector <long>> indvecs;
+  std::vector <int> image_overlap;
+  
+  // Echo config struct
+  cout << "Configuration parameters for new make_tracklets:\n";
+  cout << "Min. number of tracklet points: " << config.mintrkpts << "\n";
+  cout << "Time-tolerance for matching detections on the same image: " << config.imagetimetol << " days (" << config.imagetimetol*SOLARDAY << " seconds)\n";
+  cout << "Maximum angular velocity: " << config.maxvel << " deg/day\n";
+  cout << "Minimum angular velocity: " << config.minvel << " deg/day\n";
+  cout << "Minimum angular arc: " << config.minarc << " arcsec\n";
+  cout << "Maximum inter-image time interval: " << config.maxtime << " days (" << config.maxtime*1440.0 << " minutes)\n";
+  cout << "Minimum inter-image time interval: " << config.mintime << " days (" << config.mintime*1440.0 << " minutes)\n";
+  cout << "Image radius: " << config.imagerad << " degrees\n";
+  if(config.use_lowmem==1) {
+    cout << "The more sophisticated, memory-efficient algorithm will be used\n";
+    cout << "Matching radius for image overlap calculation: " << config.matchrad << " degrees\n";
+    cout << "Min. number of tracklet points as a fraction of image overlap: " << config.trkfrac << "\n";
+  }
+  cout << "Maximum Great Circle Residual for tracklets with more than two points: " << config.maxgcr << " arcsec\n";
+  cout << "Maximum non-exclusive tracklet length is " << config.max_netl << " points\n";
+  if(config.forcerun) {
+    cout << "forcerun has been invoked: execution will attempt to push through\n";
+    cout << "any errors that are not immediately fatal, including those that\n";
+    cout << "could produce inaccurate final results.\n";
+  }
+  if(config.verbose) cout << "Verbose output has been requested\n";
+  
+  int status = load_image_indices(image_log, detvec, config.imagetimetol, config.forcerun);
+  if(status!=0) {
+    cerr << "ERROR: failed to load_image_indices from detection vector\n";
+    return(status);
+  }
+  
+  // Echo detection vector
+  //for(i=0;i<detvec.size();i++) {
+  //  cout << "det " << i << " " << detvec[i].MJD << " " << detvec[i].RA << " " << detvec[i].Dec << " " << detvec[i].mag  << " " << detvec[i].obscode << " " << detvec[i].image << "\n";
+  //}
+  if(config.verbose) {
+    // Echo image log
+    for(i=0;i<long(image_log.size());i++) {
+      cout << "image " << i << " " << image_log[i].MJD << " " << image_log[i].RA << " " << image_log[i].Dec << " " << image_log[i].X << " " << image_log[i].obscode  << " " << image_log[i].startind  << " " << image_log[i].endind << "\n";
+    }
+  }
+
+  if(config.use_lowmem==0 || config.use_lowmem<0 || config.use_lowmem>3) {
+    // DEFAULT case: hence the check for config.use_lowmem out of the 0-3 range where
+    // it is formally defined.
+    // Use a hybrid between the older, simpler algorithm (first fully implemented in
+    // make_tracklets3 on about September 13, 2024, and availble herein by setting config.usemem to 2)
+    // and the more sophisticated algorithm implemented in find_pairs5() on about August 11, 2025.
+    // The hybrid combines the adaptive minimum tracklet length code from find_pairs5() with
+    // the simpler but less memory-efficient tracklet creation of make_tracklets3().
+    // It will likely produce comparable or superior results to all the other algorithms
+    // except in the case where it fails from memory overload, in which case the
+    // pure find_pairs5() algorithm should be selected using config.use_lowmem to 1.
+
+    vector <hldet> pairdets_temp;
+    
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+    if(status!=0) {
+      cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+      return(status);
+    }
+
+    // Sanity-check indvecs
+    cout << "make_tracklets is sanity-checking indvecs\n";
+    long detnum = indvecs.size();
+    long detct=0;
+    for(detct=0; detct<detnum; detct++) {
+      for(i=0; i<long(indvecs[detct].size()); i++) {
+	if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	  cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	  cerr << "Acceptable range is 0 to " << detnum << "\n";
+	  return(9);
+	}
+      }
+    }
+    cout << "Sanity-check finished\n";
+
+    // Calculate the extent of image overlap, to avoid writing out two-point tracklets
+    // in areas with large numbers of overlapping images.
+    image_overlap={};
+    status = calculate_overlap(detvec, image_log, config.mintime, config.maxtime, config.maxvel, config.imagerad, config.matchrad, image_overlap, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: calculate_overlap() returned with error status " << status << "\n";
+      return(status);
+    }
+
+    status = merge_pairs3(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, image_overlap, config.trkfrac, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+    if(status!=0) {
+      cerr << "ERROR: merge_pairs3 reports failure status " << status << "\n";
+      return(status);
+    } else cout << "merge_pairs3 finished OK\n";
+
+    // Load culled version of pairdets_temp into the final pairdets vector,
+    // and re-write the indices of the trk2det vector accordingly
+    
+    // Create a vector of -1s, of the same length as pairdets_temp.
+    vector <long> detloaded;
+    for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+    if(detloaded.size() != pairdets_temp.size()) {
+      cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
+      return(5);
+    }
+    pairdets={};
+    for(i=0; i<long(trk2det.size()); i++) {
+      long thisdet = trk2det[i].i2;
+      if(detloaded[thisdet]==-1) {
+	// This detection has not yet been loaded. Load it now.
+	pairdets.push_back(pairdets_temp[thisdet]);
+	// Re-assign the trk2det index appropriately
+	trk2det[i].i2 = long(pairdets.size()-1);
+	// Mark it as loaded.
+	detloaded[thisdet] = trk2det[i].i2;
+      } else {
+	// This detection has already been loaded to the pairdets vector.
+	// Re-assign the trk2det index appropriately.
+	trk2det[i].i2 = detloaded[thisdet];
+      }
+    }
+  } else if (config.use_lowmem==1) {
+    // USE THE NEW (August 11, 2025) memory-efficient algorithms implemented in find_pairs5.
+    // NOTE: little difference is expected between the algorithms except in the case of deep drilling fields.
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    cout << "About to call find_pairs5\n";
+    status = find_pairs5(detvec, image_log, pairdets, tracklets, trk2det, config.mintrkpts, config.max_netl, config.mintime, config.maxtime, config.imagetimetol, config.imagerad, config.minvel, config.maxvel, config.minarc, config.matchrad, config.trkfrac, config.maxgcr, config.verbose);
+
+    cout << "find_pairs5 completed with status " << status << "\n";
+    return(status);
+    if(status!=0) {
+      cerr << "ERROR: find_pairs5 reports failure status " << status << "\n";
+      return(status);
+    }
+  } else if(config.use_lowmem==2) {
+    // USE THE OLDER, SIMPLER, and (possibly) more robust algorithms,
+    // first fully implemented in make_tracklets3 on about September 13, 2024.
+    if(config.mintrkpts==2) {
+      // Simply output to main pairdets vector:
+      // there will be no need to revise pairdets afterwards.
+
+      // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+      // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+      // and the vector pairvec of type longpair, giving all the pairs of detections.
+      status = find_pairs(detvec, image_log, pairdets, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+      if(status!=0) {
+	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+	return(status);
+      }
+
+      // Sanity-check indvecs
+      cout << "make_tracklets is sanity-checking indvecs\n";
+      long detnum = indvecs.size();
+      long detct=0;
+      for(detct=0; detct<detnum; detct++) {
+	for(i=0; i<long(indvecs[detct].size()); i++) {
+	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	    cerr << "Acceptable range is 0 to " << detnum << "\n";
+	    return(9);
+	  }
+	}
+      }
+      cout << "Sanity-check finished\n";
+  
+      status = merge_pairs2(pairdets, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+
+      if(status!=0) {
+	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
+	return(status);
+      } else cout << "merge_pairs finished OK\n";
+    } else {
+      // The minimum number of tracklet points is more than two, so pairdets will
+      // need to be culled after its initial construction, to eliminate detections
+      // that didn't contribute to a tracklet with more than two points. Hence, we
+      // load a temporary version of pairdets, which must be culled afterwards.
+
+      vector <hldet> pairdets_temp;
+    
+      // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+      // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+      // and the vector pairvec of type longpair, giving all the pairs of detections.
+      status = find_pairs(detvec, image_log, pairdets_temp, indvecs, pairvec, config.mintime, config.maxtime, config.imagerad, config.maxvel, config.verbose);
+  
+      if(status!=0) {
+	cerr << "ERROR: find_pairs reports failure status " << status << "\n";
+	return(status);
+      }
+
+      // Sanity-check indvecs
+      cout << "make_tracklets is sanity-checking indvecs\n";
+      long detnum = indvecs.size();
+      long detct=0;
+      for(detct=0; detct<detnum; detct++) {
+	for(i=0; i<long(indvecs[detct].size()); i++) {
+	  if(indvecs[detct][i]<0 || indvecs[detct][i]>=detnum) {
+	    cerr << "ERROR: indvecs[" << detct << "][" << i << "] out of range: " << indvecs[detct][i] << "\n";
+	    cerr << "Acceptable range is 0 to " << detnum << "\n";
+	    return(9);
+	  }
+	}
+      }
+      cout << "Sanity-check finished\n";
+  
+      status = merge_pairs2(pairdets_temp, indvecs, pairvec, tracklets, trk2det, config.mintrkpts, config.max_netl, config.maxgcr, config.minarc, config.minvel, config.maxvel, config.verbose);
+
+      if(status!=0) {
+	cerr << "ERROR: merge_pairs reports failure status " << status << "\n";
+	return(status);
+      } else cout << "merge_pairs finished OK\n";
+
+      // Load culled version of pairdets_temp into the final pairdets vector,
+      // and re-write the indices of the trk2det vector accordingly
+    
+      // Create a vector of -1s, of the same length as pairdets_temp.
+      vector <long> detloaded;
+      for(i=0; i<long(pairdets_temp.size()); i++) detloaded.push_back(-1);
+      if(detloaded.size() != pairdets_temp.size()) {
+	cerr << "ERROR: length mismatch between detloaded and pairdets_temp!\n";
+	return(5);
+      }
+      pairdets={};
+      for(i=0; i<long(trk2det.size()); i++) {
+	long thisdet = trk2det[i].i2;
+	if(detloaded[thisdet]==-1) {
+	  // This detection has not yet been loaded. Load it now.
+	  pairdets.push_back(pairdets_temp[thisdet]);
+	  // Re-assign the trk2det index appropriately
+	  trk2det[i].i2 = long(pairdets.size()-1);
+	  // Mark it as loaded.
+	  detloaded[thisdet] = trk2det[i].i2;
+	} else {
+	  // This detection has already been loaded to the pairdets vector.
+	  // Re-assign the trk2det index appropriately.
+	  trk2det[i].i2 = detloaded[thisdet];
+	}
+      }
+    }
+  } else if(config.use_lowmem==3) {
+    // USE THE NEW (July 31, 2025) memory-efficient algorithms implemented in find_pairs4.
+    // NOTE: little difference is expected between the algorithms except in the case of deep drilling fields.
+    // Create pairs, output a vector pairdets of type hldet; a vector indvecs of type vector <long>,
+    // with the same length as pairdets, giving the indices of all the detections paired with a given detection;
+    // and the vector pairvec of type longpair, giving all the pairs of detections.
+    cout << "About to call find_pairs4\n";
+    status = find_pairs4(detvec, image_log, pairdets, tracklets, trk2det, config.mintrkpts, config.max_netl, config.mintime, config.maxtime, config.imagetimetol, config.imagerad, config.minvel, config.maxvel, config.minarc, config.matchrad, config.trkfrac, config.maxgcr, config.verbose);
+
+    cout << "find_pairs4 completed with status " << status << "\n";
+    return(status);
+    if(status!=0) {
+      cerr << "ERROR: find_pairs4 reports failure status " << status << "\n";
+      return(status);
+    }
+  }
+  return(0);
+}
+
 
 
 // make_trailed_tracklets: February 14, 2024: like make_tracklets,
@@ -39721,9 +43556,17 @@ int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detv
   cout << "Maximum out-of-plane RMS in km: " << config.max_oop << "\n";
   if(config.useorbMJD>0) cout << "Epoch-of-orbit MJD will be used as MJDref, if available.\n";
   else  cout << "Old reference MJD from heliolinc will be used as MJDref\n";
-  cout << "In calculating the cluster quality metric, the number of\nunique points will be raised to the power of " << config.ptpow << ";\n";
-  cout << "the number of unique nights will be raised to the power of " << config.nightpow << ";\n";
-  cout << "the total timespan will be raised to the power of " << config.timepow << ";\n";
+  if(config.ptpow>=0 && config.nightpow>=0) {
+    cout << "In calculating the cluster quality metric, the number of\nunique points will be raised to the power of " << config.ptpow << " and\n";
+    cout << "the number of unique nights will be raised to the power of " << config.nightpow << ".\n";
+  } else {
+    cout << "Because the cluster-metric exponent for the number of unique points (which is set to " << config.ptpow << ") and/or\n";
+    cout << "the corresponding exponent for the number of unique nights (which is set to " << config.nightpow << ") is negative,\n";
+    cout << "a special (and recommended) case is triggered in which the cluster metric\n";
+    cout << "will be the product of the numbers of unique detections on every night that had some detections.\n";
+    cout << "E.g., an object observed twice per night on three nights would get a metric of 2*2*2 = 8.\n";
+  }
+  cout << "The total timespan will be raised to the power of " << config.timepow << ";\n";
   cout << "and the astrometric RMS will be raised to the power of (negative) " << config.rmspow << "\n";
   if(config.verbose>=1) cout << "verbose output has been selected\n";
   if(config.use_heliovane==1) cout << "Using heliovane parameterization\n";
@@ -40042,6 +43885,7 @@ int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detv
 	if(config.verbose>0 || inclustct%1000==0) cout << "Cluster " << inclustct << " of " << inclustnum << " is too small: REJECTED.\n";
 	continue; // This cluster needs culling, but is too small to survive any. Skip it.
       }
+      if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points, using planarity\n";
       // Iteratively remove outliers from the mean plane, or remove time duplicates
       // Setup for the main while loop:
       rejnum = 0;
@@ -40304,7 +44148,34 @@ int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detv
       onecluster.uniquepoints = ptnum;
       onecluster.obsnights = obsnights;
       // Recalculate clustermetric
-      clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);	  
+      if(config.ptpow>=0 && config.nightpow>=0) {
+	// Calculate the cluster metric normally
+	clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+      } else {
+	// New option copied from link_purify on August 01, 2025:
+	// Setting config.ptpow or config.nightpow to any negative value
+	// triggers a new sort of metric, equal to the products of all
+	// the observations per night multiplied together.
+	vector <int> obs_per_night;
+	int obs_this_night=1;
+	int first_obs_tonight=0;
+	for(ptct=1;ptct<ptnum;ptct++) {
+	  if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+	    // Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
+	    obs_this_night++;
+	  } else {
+	    // We've transitioned to a new night. Record the number of observations on the last night
+	    obs_per_night.push_back(obs_this_night);
+	    obs_this_night=1;
+	    first_obs_tonight=ptct;
+	  }
+	}
+	// Handle a final night
+	obs_per_night.push_back(obs_this_night);
+	clustmetric = double(obs_per_night[0]);
+	for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+	clustmetric*=intpowD(onecluster.timespan,config.timepow);
+      }
       // Include the astrometric RMS value in the cluster metric and the RMS vector
       onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
       onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
@@ -40331,6 +44202,7 @@ int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detv
 	if(config.verbose>0 || inclustct%1000==0) cout << "Cluster " << inclustct << " of " << inclustnum << " is too small: REJECTED.\n";
 	continue; // This cluster needs culling, but is too small to survive any. Skip it.
       }
+      if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points, using orbit-fitting\n";
       // Iteratively remove astrometric outliers, or remove time duplicates
       // Setup for the main while loop:
       rejnum = 0;
@@ -40485,7 +44357,34 @@ int link_planarity(const vector <hlimage> &image_log, const vector <hldet> &detv
 	  onecluster.uniquepoints = ptnum;
 	  onecluster.obsnights = obsnights;
 	  // Recalculate clustermetric
-	  clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);	  
+	  if(config.ptpow>=0 && config.nightpow>=0) {
+	    // Calculate the cluster metric normally
+	    clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+	  } else {
+	    // New option added April 16, 2025:
+	    // Setting config.ptpow or config.nightpow to any negative value
+	    // triggers a new sort of metric, equal to the products of all
+	    // the observations per night multiplied together.
+	    vector <int> obs_per_night;
+	    int obs_this_night=1;
+	    int first_obs_tonight=0;
+	    for(ptct=1;ptct<ptnum;ptct++) {
+	      if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+		// Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
+		obs_this_night++;
+	      } else {
+		// We've transitioned to a new night. Record the number of observations on the last night
+		obs_per_night.push_back(obs_this_night);
+		obs_this_night=1;
+		first_obs_tonight=ptct;
+	      }
+	    }
+	    // Handle a final night
+	    obs_per_night.push_back(obs_this_night);
+	    clustmetric = double(obs_per_night[0]);
+	    for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+	    clustmetric*=intpowD(onecluster.timespan,config.timepow);
+	  }
 	  // Include the astrometric RMS value in the cluster metric and the RMS vector
 	  onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
 	  onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
@@ -43249,7 +47148,7 @@ int matrix_transpose(const vector <vector <long double>> &A, vector <vector <lon
   long ncolA = A[0].size();
 
   // Check that all of the rows in A have the same length.
-  for(i=1;i<nrowA;i++) {
+  for(i=0;i<nrowA;i++) {
     if(ncolA != long(A[i].size())) {
       cerr << "ERROR in matXmat: row " << i << " of matrix A has " << A[i].size() << " columns, while the first row has " << ncolA << "\n";
       return(2);
@@ -43257,8 +47156,8 @@ int matrix_transpose(const vector <vector <long double>> &A, vector <vector <lon
   }
   Atrans={};
   make_LDmat(ncolA, nrowA, Atrans);
-  for(i=1;i<nrowA;i++) {
-    for(j=1;j<ncolA;j++) {
+  for(i=0;i<nrowA;i++) {
+    for(j=0;j<ncolA;j++) {
       Atrans[j][i] = A[i][j];
     }
   }
@@ -43273,7 +47172,7 @@ int matrix_transpose(const vector <vector <double>> &A, vector <vector <double>>
   long ncolA = A[0].size();
 
   // Check that all of the rows in A have the same length.
-  for(i=1;i<nrowA;i++) {
+  for(i=0;i<nrowA;i++) {
     if(ncolA != long(A[i].size())) {
       cerr << "ERROR in matXmat: row " << i << " of matrix A has " << A[i].size() << " columns, while the first row has " << ncolA << "\n";
       return(2);
@@ -43281,8 +47180,8 @@ int matrix_transpose(const vector <vector <double>> &A, vector <vector <double>>
   }
   Atrans={};
   make_dmat(ncolA, nrowA, Atrans);
-  for(i=1;i<nrowA;i++) {
-    for(j=1;j<ncolA;j++) {
+  for(i=0;i<nrowA;i++) {
+    for(j=0;j<ncolA;j++) {
       Atrans[j][i] = A[i][j];
     }
   }
@@ -45582,3 +49481,3219 @@ int anglevec_meanrms(const vector <double> &angles, double period, double *media
   *mean = angmean;
   return(0);
 }
+
+// accelcalc02: October 01, 2025
+// Given a vector of planet positions for a particular instant in time,
+// calculate the resulting gravitational acceleration at the point targpos.
+// The planet masses must be provided in the vector planetmasses, and must
+// consist of GM products in km^3/sec^2, the default coordinate set used
+// by JPL. The output acceleration will have units of km/sec^2.
+int accelcalc02(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_statevecs, const vector <double> &targ_statevec, vector <double> &accel)
+{
+  accel = {};
+  make_dvec(3,accel);
+  vector <double> relpos;
+  make_dvec(3,relpos);
+
+  for(long i=0;i<planetnum;i++) {
+    // Calculate relative position vector pointing from target toward planet
+    for(long j=0;j<3;j++) relpos[j] = planet_statevecs[i*6+j] - targ_statevec[j];
+    double distcubed = intpowD(nvecabs(relpos),3);
+    for(long j=0;j<3;j++) accel[j] += planetmasses[i]*relpos[j]/distcubed;
+  }
+  return(0);
+}
+
+// accelcalc02LD: October 01, 2025
+// Given a vector of planet positions for a particular instant in time,
+// calculate the resulting gravitational acceleration at the point targpos.
+// The planet masses must be provided in the vector planetmasses, and must
+// consist of GM products in km^3/sec^2, the default coordinate set used
+// by JPL. The output acceleration will have units of km/sec^2.
+int accelcalc02LD(int planetnum, const vector <long double> &planetmasses, const vector <long double> &planet_statevecs, const vector <long double> &targ_statevec, vector <long double> &accel)
+{
+  accel = {};
+  make_LDvec(3,accel);
+  vector <long double> relpos;
+  make_LDvec(3,relpos);
+
+  for(long i=0;i<planetnum;i++) {
+    // Calculate relative position vector pointing from target toward planet
+    for(long j=0;j<3;j++) relpos[j] = planet_statevecs[i*6+j] - targ_statevec[j];
+    long double distcubed = intpowLD(nvecabs(relpos),3);
+    for(long j=0;j<3;j++) accel[j] += planetmasses[i]*relpos[j]/distcubed;
+  }
+  return(0);
+}
+
+// tidecalc01: October 09, 2025
+// Given a vector of planet positions for a particular instant in time,
+// calculate the resulting gravitational acceleration at the point targpos,
+// and the 3x3 matrix of derivatives of the accelerations. These are formatted
+// such that tidemat[0][0], tidemat[0][1], tidemat[0][2] are the derivatives
+// of the x-component of acceleration with respect to x, y, and z;
+// tidemat[1][0], tidemat[1][1], tidemat[1][2] are the derivatives of the y component, etc.
+// The planet masses must be provided in the vector planetmasses, and must
+// consist of GM products in km^3/sec^2, the default coordinate set used
+// by JPL. The output acceleration will have units of km/sec^2.
+int tidecalc01(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_statevecs, const vector <double> &targ_statevec, vector <double> &accel, vector <vector <double>> &tidemat)
+{
+  accel = {};
+  make_dvec(3,accel);
+  vector <double> relpos;
+  make_dvec(3,relpos);
+  long i=0;
+  long j=0;
+  long k=0;
+  double inv_dist,inv_distsquared;
+  double MG_invdistcubed;
+
+  tidemat={};
+  make_dmat(3,3,tidemat);
+  
+  for(i=0;i<planetnum;i++) {
+    // Calculate relative position vector pointing from target toward planet
+    for(j=0;j<3;j++) relpos[j] = planet_statevecs[i*6+j] - targ_statevec[j];
+    inv_dist = 1.0l/nvecabs(relpos);
+    inv_distsquared = inv_dist*inv_dist;
+    MG_invdistcubed = planetmasses[i]*inv_distsquared*inv_dist;
+    for(j=0;j<3;j++) {
+      accel[j] += relpos[j]*MG_invdistcubed;
+      for(k=0;k<3;k++) {
+	if(k==j) tidemat[j][k] += MG_invdistcubed*(3.0*relpos[k]*relpos[k]*inv_distsquared-1.0);
+	else tidemat[j][k] += 3.0*MG_invdistcubed*relpos[k]*relpos[j]*inv_distsquared;
+      }
+    }
+  }
+  return(0);
+}
+
+#define DEBUG 0
+#define TIMEDOWNSCALE 2.0l
+
+// integrate_statevec03: October 02, 2025
+// Like integrate_statevec02LD(), but is the first function of it kind
+// to use an Everhart integrator.
+// Can handle both backward and forward integration. The initial
+// conditions provided in starting_statevec apply to refpoint.
+// If refpoint <= startpoint, the program will integrate only
+// forward. If refpoint>=endpoint, only backward integration will
+// be performed. If (as is expected to be the
+// normal case) startpoint < refpont < endpoint, both backward
+// and forward integration will be performed.
+int integrate_statevec03(int polyorder, int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace)
+{
+  long i,j,k;
+  i=j=k=0;
+  int outnum = endpoint-startpoint+1;
+  int ref_subct=0;
+  int status=0;
+  
+  if(DEBUG>0) cout << "Inside integrate_statevec03()\n";
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec03 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_statevec03 called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec03 called with reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: integrate_statevec03 called with reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  
+  // Calculate the entry corresponding to refpoint in the shorter,
+  // problem-specific vectors targ_statevecs and outMJD.
+  ref_subct = refpoint-startpoint;
+
+  if(refpoint<endpoint) {
+    // Perform forward integration
+    long forwardnum = endpoint-refpoint+1;
+    vector <double> forwardMJD;
+    vector <vector <double>> forward_statevecs;
+    status = integrate_everhart(planetnum, planetmjd, planetmasses, planet_statevecs, starting_statevec, refpoint, endpoint, forwardMJD,  forward_statevecs, timestep, hnum, hspace, polyorder);
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<forwardnum;i++) targ_statevecs[ref_subct+i] = forward_statevecs[i];
+  }
+  if(refpoint>startpoint) {
+    // Perform a backward integration.
+    long backwardnum = refpoint-startpoint+1;
+    long backrefpoint = planetmjd.size()-1 - refpoint;
+    long backstartpoint = planetmjd.size()-1 - startpoint;
+    vector <vector <double>> backward_statevecs;
+    vector <double> backward_startvec;
+    vector <double> backwardMJD;
+    vector <vector <double>> backplanet_statevecs;
+    vector <double> backplanetmjd;
+
+    // Copy the starting state vector into backward_startvec
+    backward_startvec = starting_statevec;
+    // Sign-flip the velocity
+    for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+    
+    // Copy planet vectors in reverse order
+    for(i=long(planetmjd.size()-1); i>=0; i--) {
+      backplanetmjd.push_back(-planetmjd[i]);
+      vector <double> planetsonce;
+      for(j=0;j<planetnum;j++) {
+	// Position is copied verbatim
+	for(k=0;k<3;k++) planetsonce.push_back(planet_statevecs[i][6*j + k]);
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) planetsonce.push_back(-planet_statevecs[i][6*j + k]);
+      }
+      backplanet_statevecs.push_back(planetsonce);
+    }
+    integrate_everhart(planetnum, backplanetmjd, planetmasses, backplanet_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD, backward_statevecs, timestep, hnum, hspace, polyorder);
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<backwardnum;i++) {
+      // Position is copied verbatim
+      for(k=0;k<3;k++) targ_statevecs[ref_subct-i][k] = backward_statevecs[i][k];
+      // Velocity requires a sign-flip
+      for(k=3;k<6;k++) targ_statevecs[ref_subct-i][k] = -backward_statevecs[i][k];
+    }
+  }
+  return(0);
+}
+ 
+
+// integrate_everhart: October 03, 2025
+// First attempt to implement the Everhart integrator.
+// Note that timestep is expected to be in solar days
+int integrate_everhart(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace, int polyorder)
+{
+  vector <double> planetsonce;
+  vector <vector <double>> targpos;
+  vector <vector <double>> targvel;
+  vector <double> ldvec;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = endpoint-startpoint+1;
+  double dt0=0L;
+  double mjd0;
+  double mjdnow;
+  vector <double> htimes;
+  vector <double> tvec; // one-indexed vector in units of timeunit
+  vector <vector <double>> F;
+  vector <vector <double>> alpha;
+  vector <vector <double>> oldalpha1;
+  vector <vector <double>> A;
+  vector <vector <double>> c;
+  vector <vector <double>> planet_hpos;
+  vector <vector <double>> tmat; // tmat[n][j] = tvec[n] - tvec[j]
+  double timeunit = timestep/TIMEDOWNSCALE; // Units are solar days
+                                                 // Purpose is to keep large powers of time from getting too large
+  long itct;
+  long stepct;
+  long outct=0;
+  long horder=0;
+
+  if(DEBUG>0) {
+    cout << "Inside integrate_everhart()\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+  }
+
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_everhart called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_everhart called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  }
+  // Allocate the output vectors
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  // Load planet_hpos with the correct number of empty vectors
+  planet_hpos={};
+  for(i=0;i<=hnum+1;i++) {
+    ldvec={};
+    planet_hpos.push_back(ldvec);
+  }
+
+  // Everything after this will be one-indexed rather than zero-indexed,
+  // for consistency with the equations in Everhart (1974)
+  make_dmat(hnum+1, 3, F);
+  make_dmat(hnum+1, 3, alpha);
+  make_dmat(3, 3, oldalpha1);
+  make_dmat(hnum+1, 3, A);
+  make_dvec(hnum+1, htimes);
+  make_dmat(hnum+1, hnum+1, tmat);
+  make_dmat(hnum+1, hnum+1, c);
+  make_dvec(hnum+1, tvec);
+  
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_dmat(hnum+1, 3, targpos);
+  make_dmat(hnum+1, 3, targvel);
+
+  // Load the time vector tvec and the planet positions planet_hpos
+  // All of this is one-indexed, like all the calculations that follow,
+  // for consistency with Everhart (1974).
+  mjd0 = planetmjd[startpoint];
+  for(i=1;i<=hnum;i++) {
+    htimes[i] = timestep*hspace[i-1]; // Units are days
+    mjdnow = mjd0+htimes[i];
+    planet_hpos[i] = {};
+    nplanetpos02(mjdnow, planetnum, polyorder, planetmjd, planet_statevecs, planet_hpos[i]);
+    tvec[i] = htimes[i]/timeunit; // Units are timeunit
+    if(DEBUG>0) {
+      cout << "i, htimes[i], mjdnow, tvec[i], planet_hpos[0], planet_hpos[1], planet_hpos[2]: " << i << " " << htimes[i] << " " << mjdnow << " " << tvec[i] << " " << planet_hpos[i][0] << " " << planet_hpos[i][1] << " " << planet_hpos[i][2] << "\n";
+      cout << "planet_hpos[18], planet_hpos[19], planet_hpos[20]: " << planet_hpos[i][18] << " " << planet_hpos[i][19] << " " << planet_hpos[i][20] << "\n";
+      cout << "planet_hpos[21], planet_hpos[22], planet_hpos[23]: " << planet_hpos[i][21] << " " << planet_hpos[i][22] << " " << planet_hpos[i][23] << "\n";
+    }
+  }
+  for(i=1;i<=hnum;i++) {
+    for(j=1;j<=hnum;j++) tmat[i][j] = tvec[i] - tvec[j]; // Units are timeunit
+  }
+  // Load c matrix
+  c[1][1] = 1.0l;
+  for(i=2;i<=hnum;i++) {
+    c[i][1] = -tvec[i]*c[i-1][1];
+    for(j=2;j<i;j++) c[i][j] = c[i-1][j-1] - tvec[i]*c[i-1][j];
+    c[i][i] = 1.0l;
+  }
+
+  // Load the starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[1][k] = starting_statevec[k];
+    targvel[1][k] = starting_statevec[3+k]*timeunit*SOLARDAY; // units are km/timeunit
+  }
+
+  // Calculate the initial acceleration and store it in the F matrix
+  i=1;
+  accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint], targpos[i], F[i]); // Acceleration is exact
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(DEBUG>0) {
+    cout << "Starting conditions:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+    
+  // Using the approximation of constant acceleration,
+  // calculate the position and velocity at tvec[2]
+  i=2;
+  dt0 = tvec[i] - tvec[i-1]; // units of dt0 are timeunit
+  for(k=0;k<3;k++) {
+    targpos[i][k] = targpos[i-1][k] + targvel[i-1][k]*dt0 + 0.5l*F[i-1][k]*dt0*dt0;
+    targvel[i][k] = targvel[i-1][k] + F[i-1][k]*dt0;
+  }
+  // Calculate the acceleration at tvec[2], and store it in the F matrix
+  accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint], targpos[i], F[i]);
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(DEBUG>0) {
+    cout << "Constant acceleration approx:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+  // Bootstrap iterations. horder is the highest term considered for F.
+  horder=2;
+  for(itct=1;itct<=hnum+3;itct++) {
+    for(i=2;i<=horder;i++) {
+      for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+      for(j=2;j<i;j++) {
+	for(k=0;k<3;k++) {
+	  alpha[i-1][k] -= alpha[j-1][k];
+	  alpha[i-1][k] /= tvec[i] - tvec[j];
+	}
+      }
+    }
+
+    // Make sure high-order terms of matrix A start out at zero.
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+    }
+    // Calculate all available terms in matrix A from matrix alpha
+    for(j=1;j<horder;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(i=horder-1;i>=j;i--) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+      }
+    }
+  
+    if(DEBUG>0) {
+      cout << "F matrix, horder = " << horder << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    if(horder<hnum) horder++;
+    for(j=2;j<=horder;j++) {
+      dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+      for(k=0;k<3;k++) targpos[j][k] = targvel[j][k] = 0.0l;
+      for(i=horder-1;i>=1;i--) {
+ 	for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      for(k=0;k<3;k++) targpos[j][k] += targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targvel[j][k] += targvel[1][k] + F[1][k]*dt0;
+    }
+    // Re-calculate the accelerations (that is, the vector F) at these revised positions
+    for(i=2;i<=horder;i++) {
+      accelcalc02(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i]);
+      for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      if(DEBUG>0) {
+	cout << "Interating at itct " << itct << ", horder = " << horder << "\n";
+	cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+	cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+	cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+      }
+    }
+  }
+  
+  outct=0;
+  // Load output position and velocity spanning the first timestep
+  while(outMJD[outct] <= outMJD[0]+timestep) {
+    dt0 = (outMJD[outct] - outMJD[0])/timeunit;
+    for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+    // Convert the velocity from km/timeunit to km/sec
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+    if(DEBUG>0) cout << "outct = " << outct << ", statevecs = " << targ_statevecs[outct][0] << " "  << targ_statevecs[outct][1] << " "  << targ_statevecs[outct][2] << " "  << targ_statevecs[outct][3] << " " << targ_statevecs[outct][4] << " " << targ_statevecs[outct][5] << " " << "\n";
+    outct++;
+  }
+
+  // Finished with the iterations, calculate precise position
+  // and velocity at the end of the first timestep, and store
+  // in targpos[1] and targvel[1], to set up for the next
+  // integration step.
+  dt0 = timestep/timeunit; // units of dt0 are timeunit
+  for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+  for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+  for(i=1;i<hnum;i++) {
+    for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+  }
+  if(DEBUG>0) cout << "targpos = " << targpos[1][0] << " "  << targpos[1][1] << " " << targpos[1][2] << " " << targvel[1][0]/timeunit/SOLARDAY << " "  << targvel[1][1]/timeunit/SOLARDAY << " "  << targvel[1][2]/timeunit/SOLARDAY << "\n";
+  
+  // Save current value of alpha[1] in oldalpha1
+  for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+
+  // Launch full-precision integration
+  stepct=1;
+  mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  while(mjd0 <= planetmjd[endpoint] && outct<outnum) {
+    // Calculate the positions of all the planets throughout this timestep
+    for(i=1;i<=hnum;i++) {
+      mjdnow = mjd0+htimes[i];
+      planet_hpos[i] = {};
+      nplanetpos02(mjdnow, planetnum, polyorder, planetmjd, planet_statevecs, planet_hpos[i]);
+    }
+    // Calculate new value of F[1]
+    i=1;
+    accelcalc02(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i]);
+    for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+
+    // Integrate over the next timestep
+    if(stepct==2) {
+      // Obtain new value of alpha[1] by linear extrapolation from the old
+      for(k=0;k<3;k++) alpha[1][k] = 2.0l*oldalpha1[2][k] - oldalpha1[1][k]; 
+    } else if(stepct>2) {
+      // Obtain new value of alpha[1] by quadratic extrapolation from the old
+      for(k=0;k<3;k++) {
+	double fita = (oldalpha1[2][k] - 2.0l*oldalpha1[1][k] + oldalpha1[0][k])/2.0l;
+	double fitb = (-oldalpha1[2][k] + 4.0l*oldalpha1[1][k] - 3.0l*oldalpha1[0][k])/2.0l;
+	double fitc = oldalpha1[0][k];
+	alpha[1][k] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+    }
+
+    // Iteratively improve initial estimate of the alpha matrix,
+    // and the A matrix, positions, and velocities that depend on it.
+    for(itct=1;itct<=2;itct++) {
+      // First calculate the A matrix from the best current values of alpha
+      for(j=1;j<hnum;j++) {
+	for(k=0;k<3;k++) A[j][k] = 0.0l;
+	for(i=j;i<hnum;i++) {
+	  for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	}
+      }
+      // predict all the positions and velocities from the A values,
+      // using Everhart Equations 4 and 5
+      for(j=2;j<=hnum;j++) {
+	dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+	for(k=0;k<3;k++) targpos[j][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+	for(k=0;k<3;k++) targvel[j][k] = targvel[1][k] + F[1][k]*dt0;
+	for(i=1;i<hnum;i++) {
+	  for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	  for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	}
+      }
+      // Re-calculate the accelerations (that is, the vector F) at these revised positions
+      for(i=2;i<=hnum;i++) {
+	accelcalc02(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i]);
+	for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      }
+      // Re-calculate alpha based on the revised vector F
+      for(i=2;i<=hnum;i++) {
+	for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+	for(j=2;j<i;j++) {
+	  for(k=0;k<3;k++) {
+	    alpha[i-1][k] -= alpha[j-1][k];
+	    alpha[i-1][k] /= tvec[i] - tvec[j];
+	  }
+	}
+      }
+    }
+    // Done with iterations, alpha matrix should be very accurate now.
+    // Calculate a revised A matrix from final-iteration values of alpha
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(i=j;i<hnum;i++) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+      }
+    }
+    if(DEBUG>0) {
+      cout << "F matrix, stepct = " << stepct << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    
+    // Load output position and velocity spanning the latest timestep
+    while(outMJD[outct] <= mjd0+timestep && outct<outnum) {
+      dt0 = (outMJD[outct] - mjd0)/timeunit;
+      for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+      for(i=1;i<hnum;i++) {
+	for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      // Convert the velocity from km/timeunit to km/sec
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+      outct++;
+    }
+
+    // Calculate precise position and velocity at the end of this timestep, and store
+    // in targpos[1] and targvel[1], to set up for the next integration step.
+    dt0 = timestep/timeunit; // units of dt0 are timeunit
+    for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+    }
+  
+    // Cycle oldalpha1
+    for(k=0;k<3;k++) oldalpha1[0][k] = oldalpha1[1][k];
+    for(k=0;k<3;k++) oldalpha1[1][k] = oldalpha1[2][k];
+    for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+    stepct++;
+    mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  }
+  return(0);
+}
+
+// integrate_everhart_vareq: October 09, 2025
+// Everhart integrator for the variational equations
+// Note that timestep is expected to be in solar days
+int integrate_everhart_vareq(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int polyorder)
+{
+  vector <double> planetsonce;
+  vector <vector <double>> targpos;
+  vector <vector <double>> targvel;
+  vector <double> ldvec;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = endpoint-startpoint+1;
+  double dt0=0L;
+  double mjd0;
+  double mjdnow;
+  vector <double> htimes;
+  vector <double> tvec; // one-indexed vector in units of timeunit
+  vector <vector <double>> F;
+  vector <vector <double>> alpha;
+  vector <vector <double>> oldalpha1;
+  vector <vector <double>> A;
+  vector <vector <double>> c;
+  vector <vector <double>> planet_hpos;
+  vector <vector <double>> tmat; // tmat[n][j] = tvec[n] - tvec[j]
+  double timeunit = timestep/TIMEDOWNSCALE; // Units are solar days
+                                                 // Purpose is to keep large powers of time from getting too large
+  long itct;
+  long stepct;
+  long outct=0;
+  long horder=0;
+  vector <vector <double>> tidemat;
+  vector <vector <double>> phival;
+  vector <vector <double>> smat;
+  vector <vector <double>> phideriv;
+  vector <vector <double>> phivalmat;
+  vector <vector <double>> phiderivmat;
+  vector <vector <double>> phi_alpha;
+  vector <vector <double>> old_phi_alpha1;
+  vector <vector <double>> phi_A;
+  int pi,pj;
+  double fita,fitb,fitc;
+  fita = fitb = fitc = 0.0;
+  
+  if(DEBUG>0) {
+    cout << "Inside integrate_everhart_vareq()\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+  }
+
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_everhart_vareq called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_everhart_vareq called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  }
+  // Allocate the output vectors
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  make_dmat(outnum, 36, vareq_mat);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  // Load planet_hpos with the correct number of empty vectors
+  planet_hpos={};
+  for(i=0;i<=hnum+1;i++) {
+    ldvec={};
+    planet_hpos.push_back(ldvec);
+  }
+
+  // Everything after this will be one-indexed rather than zero-indexed,
+  // for consistency with the equations in Everhart (1974)
+  make_dmat(hnum+1, 3, F);
+  make_dmat(hnum+1, 3, alpha);
+  make_dmat(3, 3, oldalpha1);
+  make_dmat(hnum+1, 3, A);
+  make_dvec(hnum+1, htimes);
+  make_dmat(hnum+1, hnum+1, tmat);
+  make_dmat(hnum+1, hnum+1, c);
+  make_dvec(hnum+1, tvec);
+  make_dmat(6,6,phival);
+  make_dmat(6,6,smat);
+  make_dmat(6,6,phideriv);
+  make_dmat(hnum+1,36,phivalmat);
+  make_dmat(hnum+1,36,phiderivmat);
+  make_dmat(hnum+1,36, phi_alpha);
+  make_dmat(hnum+1,36, phi_A);
+  make_dmat(3, 36, old_phi_alpha1);
+
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_dmat(hnum+1, 3, targpos);
+  make_dmat(hnum+1, 3, targvel);
+
+  // Load the time vector tvec and the planet positions planet_hpos
+  // All of this is one-indexed, like all the calculations that follow,
+  // for consistency with Everhart (1974).
+  mjd0 = planetmjd[startpoint];
+  for(i=1;i<=hnum;i++) {
+    htimes[i] = timestep*hspace[i-1]; // Units are days
+    mjdnow = mjd0+htimes[i];
+    planet_hpos[i] = {};
+    nplanetpos02(mjdnow, planetnum, polyorder, planetmjd, planet_statevecs, planet_hpos[i]);
+    tvec[i] = htimes[i]/timeunit; // Units are timeunit
+    if(DEBUG>0) {
+      cout << "i, htimes[i], mjdnow, tvec[i], planet_hpos[0], planet_hpos[1], planet_hpos[2]: " << i << " " << htimes[i] << " " << mjdnow << " " << tvec[i] << " " << planet_hpos[i][0] << " " << planet_hpos[i][1] << " " << planet_hpos[i][2] << "\n";
+      cout << "planet_hpos[18], planet_hpos[19], planet_hpos[20]: " << planet_hpos[i][18] << " " << planet_hpos[i][19] << " " << planet_hpos[i][20] << "\n";
+      cout << "planet_hpos[21], planet_hpos[22], planet_hpos[23]: " << planet_hpos[i][21] << " " << planet_hpos[i][22] << " " << planet_hpos[i][23] << "\n";
+    }
+  }
+  for(i=1;i<=hnum;i++) {
+    for(j=1;j<=hnum;j++) tmat[i][j] = tvec[i] - tvec[j]; // Units are timeunit
+  }
+  // Load c matrix
+  c[1][1] = 1.0l;
+  for(i=2;i<=hnum;i++) {
+    c[i][1] = -tvec[i]*c[i-1][1];
+    for(j=2;j<i;j++) c[i][j] = c[i-1][j-1] - tvec[i]*c[i-1][j];
+    c[i][i] = 1.0l;
+  }
+
+  // Load the starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[1][k] = starting_statevec[k];
+    targvel[1][k] = starting_statevec[3+k]*timeunit*SOLARDAY; // units are km/timeunit
+  }
+  // Initialize the variational equation matrix phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      if(pi==pj) phival[pi][pj] = 1.0;
+      else phival[pi][pj] = 0.0;
+    }
+  }
+  // Initialize the sensitivity matrix smat. Only the lower-left quadrant will ever change.
+  for(pi=0;pi<3;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      if(pi == pj-3) smat[pi][pj] = 1.0;
+      else smat[pi][pj] = 0.0;
+    }
+  }
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+  }
+
+  // Calculate the initial acceleration and store it in the F matrix
+  i=1;
+  tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint], targpos[i], F[i], tidemat); // Acceleration is exact
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phival and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  if(DEBUG>0) {
+    cout << "Starting conditions:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+    
+  // Using the approximation of constant acceleration,
+  // calculate the position, velocity, and phival at tvec[2]
+  i=2;
+  dt0 = tvec[i] - tvec[i-1]; // units of dt0 are timeunit
+  for(k=0;k<3;k++) {
+    targpos[i][k] = targpos[i-1][k] + targvel[i-1][k]*dt0 + 0.5l*F[i-1][k]*dt0*dt0;
+    targvel[i][k] = targvel[i-1][k] + F[i-1][k]*dt0;
+  }
+  for(pi=0;pi<36;pi++) phivalmat[i][pi] = phivalmat[i-1][pi] + phideriv[i-1][pi]*dt0;
+  
+  // Calculate the acceleration and phider at tvec[2], and store it in the F matrix
+  tidecalc01(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i], tidemat);
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(DEBUG>0) {
+    cout << "Constant acceleration approx:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+  // Re-roll phivalmat[i] into phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phival[pi][pj] = phivalmat[i][pi*6+pj];
+    }
+  }
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the new derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phimat and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  // Bootstrap iterations. horder is the highest term considered for F.
+  horder=2;
+  for(itct=1;itct<=hnum+3;itct++) {
+    for(i=2;i<=horder;i++) {
+      for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+      for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+      for(j=2;j<i;j++) {
+	for(k=0;k<3;k++) {
+	  alpha[i-1][k] -= alpha[j-1][k];
+	  alpha[i-1][k] /= tvec[i] - tvec[j];
+	}
+	for(pi=0;pi<36;pi++) {
+	  phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	  phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	}
+      }
+    }
+
+    // Make sure high-order terms of matrix A start out at zero.
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+    }
+    // Calculate all available terms in matrix A from matrix alpha
+    for(j=1;j<horder;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=horder-1;i>=j;i--) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+  
+    if(DEBUG>0) {
+      cout << "F matrix, horder = " << horder << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    if(horder<hnum) horder++;
+    for(j=2;j<=horder;j++) {
+      dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+      for(k=0;k<3;k++) targpos[j][k] = targvel[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] = 0.0l;
+      for(i=horder-1;i>=1;i--) {
+ 	for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      for(k=0;k<3;k++) targpos[j][k] += targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targvel[j][k] += targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] += phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    }
+    // Re-calculate the accelerations (that is, the vector F) at these revised positions
+    for(i=2;i<=horder;i++) {
+      tidecalc01(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i], tidemat);
+      for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      if(DEBUG>0) {
+	cout << "Interating at itct " << itct << ", horder = " << horder << "\n";
+	cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+	cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+	cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+      }
+      // Re-roll phivalmat[i] into phival
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phival[pi][pj] = phivalmat[i][pi*6+pj];
+	}
+      }
+      // Update the sensitivity matrix with the new tidal parameters.
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	}
+      }
+      // Calculate the new derivative matrix
+      matXmat(smat, phival, phideriv);
+      // Unroll phimat and phideriv into phivalmat and phiderivmat
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phivalmat[i][pi*6+pj] = phival[pi][pj];
+	  phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	}
+      }
+    }
+  }
+  
+  outct=0;
+  // Load output position and velocity spanning the first timestep
+  while(outMJD[outct] <= outMJD[0]+timestep) {
+    dt0 = (outMJD[outct] - outMJD[0])/timeunit;
+    for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) vareq_mat[outct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) vareq_mat[outct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+    // Convert the velocity from km/timeunit to km/sec
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+    if(DEBUG>0) cout << "outct = " << outct << ", statevecs = " << targ_statevecs[outct][0] << " "  << targ_statevecs[outct][1] << " "  << targ_statevecs[outct][2] << " "  << targ_statevecs[outct][3] << " " << targ_statevecs[outct][4] << " " << targ_statevecs[outct][5] << " " << "\n";
+    for(pi=0;pi<3;pi++) {
+      for(pj=3;pj<6;pj++) {
+	vareq_mat[outct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+      }
+    }
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	vareq_mat[outct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+      }
+    }
+    outct++;
+  }
+
+  // Finished with the iterations, calculate precise position
+  // and velocity at the end of the first timestep, and store
+  // in targpos[1] and targvel[1], to set up for the next
+  // integration step.
+  dt0 = timestep/timeunit; // units of dt0 are timeunit
+  for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+  for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+  for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+  for(i=1;i<hnum;i++) {
+    for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+  }
+  if(DEBUG>0) cout << "targpos = " << targpos[1][0] << " "  << targpos[1][1] << " " << targpos[1][2] << " " << targvel[1][0]/timeunit/SOLARDAY << " "  << targvel[1][1]/timeunit/SOLARDAY << " "  << targvel[1][2]/timeunit/SOLARDAY << "\n";
+  
+  // Save current value of alpha[1] in oldalpha1
+  for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+  for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+  
+  // Launch full-precision integration
+  stepct=1;
+  mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  while(mjd0 <= planetmjd[endpoint] && outct<outnum) {
+    // Calculate the positions of all the planets throughout this timestep
+    for(i=1;i<=hnum;i++) {
+      mjdnow = mjd0+htimes[i];
+      planet_hpos[i] = {};
+      nplanetpos02(mjdnow, planetnum, polyorder, planetmjd, planet_statevecs, planet_hpos[i]);
+    }
+    // Calculate new value of F[1]
+    i=1;
+    tidecalc01(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i], tidemat);
+    for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+    // Re-roll phivalmat[i] into phival
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phival[pi][pj] = phivalmat[i][pi*6+pj];
+      }
+    }
+    // Update the sensitivity matrix with the new tidal parameters.
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+      }
+    }
+    // Calculate the new derivative matrix
+    matXmat(smat, phival, phideriv);
+    // Unroll phimat and phideriv into phivalmat and phiderivmat
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phivalmat[i][pi*6+pj] = phival[pi][pj];
+	phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+      }
+    }
+
+    // Integrate over the next timestep
+    if(stepct==2) {
+      // Obtain new value of alpha[1] by linear extrapolation from the old
+      for(k=0;k<3;k++) alpha[1][k] = 2.0l*oldalpha1[2][k] - oldalpha1[1][k];
+      for(pi=0;pi<36;pi++) phi_alpha[1][pi] = 2.0*old_phi_alpha1[2][pi] - old_phi_alpha1[1][pi];
+    } else if(stepct>2) {
+      // Obtain new value of alpha[1] by quadratic extrapolation from the old
+      for(k=0;k<3;k++) {
+	fita = (oldalpha1[2][k] - 2.0l*oldalpha1[1][k] + oldalpha1[0][k])/2.0l;
+	fitb = (-oldalpha1[2][k] + 4.0l*oldalpha1[1][k] - 3.0l*oldalpha1[0][k])/2.0l;
+	fitc = oldalpha1[0][k];
+	alpha[1][k] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+      for(pi=0;pi<36;pi++) {
+	fita = (old_phi_alpha1[2][pi] - 2.0l*old_phi_alpha1[1][pi] + old_phi_alpha1[0][pi])/2.0l;
+	fitb = (-old_phi_alpha1[2][pi] + 4.0l*old_phi_alpha1[1][pi] - 3.0l*old_phi_alpha1[0][pi])/2.0l;
+	fitc = old_phi_alpha1[0][pi];
+	phi_alpha[1][pi] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+    }
+
+    // Iteratively improve initial estimate of the alpha matrix,
+    // and the A matrix, positions, and velocities that depend on it.
+    for(itct=1;itct<=2;itct++) {
+      // First calculate the A matrix from the best current values of alpha
+      for(j=1;j<hnum;j++) {
+	for(k=0;k<3;k++) A[j][k] = 0.0l;
+	for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0;
+	for(i=j;i<hnum;i++) {
+	  for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	  for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+	}
+      }
+      // predict all the positions and velocities from the A values,
+      // using Everhart Equations 4 and 5
+      for(j=2;j<=hnum;j++) {
+	dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+	for(k=0;k<3;k++) targpos[j][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+	for(k=0;k<3;k++) targvel[j][k] = targvel[1][k] + F[1][k]*dt0;
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0; 
+	for(i=1;i<hnum;i++) {
+	  for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	  for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	  for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	}
+      }
+      // Re-calculate the accelerations (that is, the vector F) at these revised positions
+      for(i=2;i<=hnum;i++) {
+	tidecalc01(planetnum, planetmasses, planet_hpos[i], targpos[i], F[i], tidemat);
+	for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+	// Re-roll phivalmat[i] into phival
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phival[pi][pj] = phivalmat[i][pi*6+pj];
+	  }
+	}
+	// Update the sensitivity matrix with the new tidal parameters.
+	for(pi=3;pi<6;pi++) {
+	  for(pj=0;pj<3;pj++) {
+	    smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	  }
+	}
+	// Calculate the new derivative matrix
+	matXmat(smat, phival, phideriv);
+	// Unroll phimat and phideriv into phivalmat and phiderivmat
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phivalmat[i][pi*6+pj] = phival[pi][pj];
+	    phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	  }
+	}
+      }
+      // Re-calculate alpha based on the revised vector F
+      for(i=2;i<=hnum;i++) {
+	for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+	for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+	for(j=2;j<i;j++) {
+	  for(k=0;k<3;k++) {
+	    alpha[i-1][k] -= alpha[j-1][k];
+	    alpha[i-1][k] /= tvec[i] - tvec[j];
+	  }
+	  for(pi=0;pi<36;pi++) {
+	    phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	    phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	  }
+	}
+      }
+    }
+    // Done with iterations, alpha matrix should be very accurate now.
+    // Calculate a revised A matrix from final-iteration values of alpha
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=j;i<hnum;i++) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+    if(DEBUG>0) {
+      cout << "F matrix, stepct = " << stepct << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    
+    // Load output position and velocity spanning the latest timestep
+    while(outMJD[outct] <= mjd0+timestep && outct<outnum) {
+      dt0 = (outMJD[outct] - mjd0)/timeunit;
+      for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) vareq_mat[outct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+      for(i=1;i<hnum;i++) {
+	for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) vareq_mat[outct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      // Convert the velocity from km/timeunit to km/sec
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+      for(pi=0;pi<3;pi++) {
+	for(pj=3;pj<6;pj++) {
+	  vareq_mat[outct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+	}
+      }
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  vareq_mat[outct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+	}
+      }
+      outct++;
+    }
+
+    // Calculate precise position and velocity at the end of this timestep, and store
+    // in targpos[1] and targvel[1], to set up for the next integration step.
+    dt0 = timestep/timeunit; // units of dt0 are timeunit
+    for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+  
+    // Cycle oldalpha1
+    for(k=0;k<3;k++) oldalpha1[0][k] = oldalpha1[1][k];
+    for(k=0;k<3;k++) oldalpha1[1][k] = oldalpha1[2][k];
+    for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[0][pi] = old_phi_alpha1[1][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[1][pi] = old_phi_alpha1[2][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+    
+    stepct++;
+    mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  }
+  return(0);
+}
+
+// integrate_vareq01: October 09, 2025:
+// Integrate variational equations using integrate_everhart_vareq()
+// Closely related to integrate_statevec03.
+int integrate_vareq01(int polyorder, int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int refpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace)
+{
+  long i,j,k,pi,pj;
+  i=j=k=pi=pj=0;
+  int outnum = endpoint-startpoint+1;
+  int ref_subct=0;
+  int status=0;
+  
+  if(DEBUG>0) cout << "Inside integrate_vareq01()\n";
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_vareq01 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_vareq01 called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: integrate_vareq01 called with reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: integrate_vareq01 called with reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  make_dmat(outnum, 36, vareq_mat);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint+i];
+  
+  // Calculate the entry corresponding to refpoint in the shorter,
+  // problem-specific vectors targ_statevecs and outMJD.
+  ref_subct = refpoint-startpoint;
+
+  if(refpoint<endpoint) {
+    // Perform forward integration
+    long forwardnum = endpoint-refpoint+1;
+    vector <double> forwardMJD;
+    vector <vector <double>> forward_statevecs;
+    vector <vector <double>> forward_vareq;
+    status = integrate_everhart_vareq(planetnum, planetmjd, planetmasses, planet_statevecs, starting_statevec, refpoint, endpoint, forwardMJD,  forward_statevecs, forward_vareq, timestep, hnum, hspace, polyorder);
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart_vareq() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<forwardnum;i++) {
+      targ_statevecs[ref_subct+i] = forward_statevecs[i];
+      vareq_mat[ref_subct+i] = forward_vareq[i];
+    }
+  }
+  if(refpoint>startpoint) {
+    // Perform a backward integration.
+    long backwardnum = refpoint-startpoint+1;
+    long backrefpoint = planetmjd.size()-1 - refpoint;
+    long backstartpoint = planetmjd.size()-1 - startpoint;
+    vector <vector <double>> backward_statevecs;
+    vector <vector <double>> backward_vareq;
+    vector <double> backward_startvec;
+    vector <double> backwardMJD;
+    vector <vector <double>> backplanet_statevecs;
+    vector <double> backplanetmjd;
+
+    // Copy the starting state vector into backward_startvec
+    backward_startvec = starting_statevec;
+    // Sign-flip the velocity
+    for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+    
+    // Copy planet vectors in reverse order
+    for(i=long(planetmjd.size()-1); i>=0; i--) {
+      backplanetmjd.push_back(-planetmjd[i]);
+      vector <double> planetsonce;
+      for(j=0;j<planetnum;j++) {
+	// Position is copied verbatim
+	for(k=0;k<3;k++) planetsonce.push_back(planet_statevecs[i][6*j + k]);
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) planetsonce.push_back(-planet_statevecs[i][6*j + k]);
+      }
+      backplanet_statevecs.push_back(planetsonce);
+    }
+    integrate_everhart_vareq(planetnum, backplanetmjd, planetmasses, backplanet_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD, backward_statevecs, backward_vareq, timestep, hnum, hspace, polyorder);
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart_vareq() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<backwardnum;i++) {
+      // Position is copied verbatim
+      for(k=0;k<3;k++) targ_statevecs[ref_subct-i][k] = backward_statevecs[i][k];
+      // Velocity requires a sign-flip
+      for(k=3;k<6;k++) targ_statevecs[ref_subct-i][k] = -backward_statevecs[i][k];
+      vareq_mat[ref_subct-i] = backward_vareq[i];
+      // Terms with velocity in only the numerator or only the denominator require a sign-flip:
+      for(pi=0;pi<3;pi++) {
+	for(pj=3;pj<6;pj++) {
+	  vareq_mat[ref_subct-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the denominator
+	}
+      }
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  vareq_mat[ref_subct-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the numerator
+	}
+      }
+
+    }
+  }
+  return(0);
+}
+
+
+
+// integrate_everhart_vareq02: October 09, 2025
+// Everhart integrator for the variational equations, as well as
+// position and velocity. In order to obtain a major increase in
+// speed, this version requires that the input vectors planemjd and planet_statevecs
+// have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum. Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable.
+// Planetary ephemeris files with the required sampling for
+// Everhart integration at a specific hnum and timestep can be produced
+// using Horizons_resample.cpp.
+// Note: this function handles only forward integration, but it is
+// designed to serve as the central engine for integrate_vareq02(), which
+// handles integration in both backward and forward directions as needed.
+int integrate_everhart_vareq02(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace)
+{
+  vector <vector <double>> targpos;
+  vector <vector <double>> targvel;
+  vector <double> ldvec;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = round(planetmjd[endpoint] - planetmjd[startpoint])+1;
+  double dt0=0L;
+  double mjd0;
+  double mjdnow;
+  vector <double> htimes;
+  vector <double> tvec; // one-indexed vector in units of timeunit
+  vector <vector <double>> F;
+  vector <vector <double>> alpha;
+  vector <vector <double>> oldalpha1;
+  vector <vector <double>> A;
+  vector <vector <double>> c;
+  vector <vector <double>> tmat; // tmat[n][j] = tvec[n] - tvec[j]
+  double timeunit = timestep/TIMEDOWNSCALE; // Units are solar days
+                                            // Purpose is to keep large powers of time from getting too large
+  long itct;
+  long stepct;
+  long outct=0;
+  long horder=0;
+  vector <vector <double>> tidemat;
+  vector <vector <double>> phival;
+  vector <vector <double>> smat;
+  vector <vector <double>> phideriv;
+  vector <vector <double>> phivalmat;
+  vector <vector <double>> phiderivmat;
+  vector <vector <double>> phi_alpha;
+  vector <vector <double>> old_phi_alpha1;
+  vector <vector <double>> phi_A;
+  int pi,pj;
+  double fita,fitb,fitc;
+  fita = fitb = fitc = 0.0;
+  
+  if(DEBUG>0) {
+    cout << "Inside integrate_everhart_vareq02()\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+  }
+  
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_everhart_vareq02 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_everhart_vareq02 called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  }
+  // Allocate the output vectors
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  make_dmat(outnum, 36, vareq_mat);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint] + static_cast<double>(i);
+
+  // Everything after this will be one-indexed rather than zero-indexed,
+  // for consistency with the equations in Everhart (1974)
+  make_dmat(hnum+1, 3, F);
+  make_dmat(hnum+1, 3, alpha);
+  make_dmat(3, 3, oldalpha1);
+  make_dmat(hnum+1, 3, A);
+  make_dvec(hnum+1, htimes);
+  make_dmat(hnum+1, hnum+1, tmat);
+  make_dmat(hnum+1, hnum+1, c);
+  make_dvec(hnum+1, tvec);
+  make_dmat(6,6,phival);
+  make_dmat(6,6,smat);
+  make_dmat(6,6,phideriv);
+  make_dmat(hnum+1,36,phivalmat);
+  make_dmat(hnum+1,36,phiderivmat);
+  make_dmat(hnum+1,36, phi_alpha);
+  make_dmat(hnum+1,36, phi_A);
+  make_dmat(3, 36, old_phi_alpha1);
+
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_dmat(hnum+1, 3, targpos);
+  make_dmat(hnum+1, 3, targvel);
+
+  // Load the time vector tvec.
+  // All of this is one-indexed, like all the calculations that follow,
+  // for consistency with Everhart (1974).
+  mjd0 = planetmjd[startpoint];
+  for(i=1;i<=hnum;i++) {
+    htimes[i] = timestep*hspace[i-1]; // Units are days
+    mjdnow = mjd0+htimes[i];
+    if(fabs(mjdnow - planetmjd[startpoint+i-1]) > STATEMJD_TIMETOL) {
+      cerr << "ERROR: time mismatch at point " << startpoint+i-1 << " " << mjdnow << " vs. " << planetmjd[startpoint+i-1] << "\n";
+      return(2);
+    }
+    tvec[i] = htimes[i]/timeunit; // Units are timeunit
+  }
+  for(i=1;i<=hnum;i++) {
+    for(j=1;j<=hnum;j++) tmat[i][j] = tvec[i] - tvec[j]; // Units are timeunit
+  }
+  // Load c matrix
+  c[1][1] = 1.0l;
+  for(i=2;i<=hnum;i++) {
+    c[i][1] = -tvec[i]*c[i-1][1];
+    for(j=2;j<i;j++) c[i][j] = c[i-1][j-1] - tvec[i]*c[i-1][j];
+    c[i][i] = 1.0l;
+  }
+
+  // Load the starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[1][k] = starting_statevec[k];
+    targvel[1][k] = starting_statevec[3+k]*timeunit*SOLARDAY; // units are km/timeunit
+  }
+  // Initialize the variational equation matrix phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      if(pi==pj) phival[pi][pj] = 1.0;
+      else phival[pi][pj] = 0.0;
+    }
+  }
+  // Initialize the sensitivity matrix smat. Only the lower-left quadrant will ever change.
+  for(pi=0;pi<3;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      if(pi == pj-3) smat[pi][pj] = 1.0;
+      else smat[pi][pj] = 0.0;
+    }
+  }
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+  }
+
+  // Calculate the initial acceleration and store it in the F matrix
+  i=1;
+  tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat); // Acceleration is exact
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phival and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  if(DEBUG>0) {
+    cout << "Starting conditions:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+    
+  // Using the approximation of constant acceleration,
+  // calculate the position, velocity, and phival at tvec[2]
+  i=2;
+  dt0 = tvec[i] - tvec[i-1]; // units of dt0 are timeunit
+  for(k=0;k<3;k++) {
+    targpos[i][k] = targpos[i-1][k] + targvel[i-1][k]*dt0 + 0.5l*F[i-1][k]*dt0*dt0;
+    targvel[i][k] = targvel[i-1][k] + F[i-1][k]*dt0;
+  }
+  for(pi=0;pi<36;pi++) phivalmat[i][pi] = phivalmat[i-1][pi] + phideriv[i-1][pi]*dt0;
+  
+  // Calculate the acceleration and phider at tvec[2], and store it in the F matrix
+  tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat);
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(DEBUG>0) {
+    cout << "Constant acceleration approx:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+  // Re-roll phivalmat[i] into phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phival[pi][pj] = phivalmat[i][pi*6+pj];
+    }
+  }
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the new derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phimat and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  // Bootstrap iterations. horder is the highest term considered for F.
+  horder=2;
+  for(itct=1;itct<=hnum+3;itct++) {
+    for(i=2;i<=horder;i++) {
+      for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+      for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+      for(j=2;j<i;j++) {
+	for(k=0;k<3;k++) {
+	  alpha[i-1][k] -= alpha[j-1][k];
+	  alpha[i-1][k] /= tvec[i] - tvec[j];
+	}
+	for(pi=0;pi<36;pi++) {
+	  phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	  phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	}
+      }
+    }
+
+    // Make sure high-order terms of matrix A start out at zero.
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+    }
+    // Calculate all available terms in matrix A from matrix alpha
+    for(j=1;j<horder;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=horder-1;i>=j;i--) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+  
+    if(DEBUG>0) {
+      cout << "F matrix, horder = " << horder << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    if(horder<hnum) horder++;
+    for(j=2;j<=horder;j++) {
+      dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+      for(k=0;k<3;k++) targpos[j][k] = targvel[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] = 0.0l;
+      for(i=horder-1;i>=1;i--) {
+ 	for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      for(k=0;k<3;k++) targpos[j][k] += targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targvel[j][k] += targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] += phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    }
+    // Re-calculate the accelerations (that is, the vector F) at these revised positions
+    for(i=2;i<=horder;i++) {
+      tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat);
+      for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      if(DEBUG>0) {
+	cout << "Interating at itct " << itct << ", horder = " << horder << "\n";
+	cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+	cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+	cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+      }
+      // Re-roll phivalmat[i] into phival
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phival[pi][pj] = phivalmat[i][pi*6+pj];
+	}
+      }
+      // Update the sensitivity matrix with the new tidal parameters.
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	}
+      }
+      // Calculate the new derivative matrix
+      matXmat(smat, phival, phideriv);
+      // Unroll phimat and phideriv into phivalmat and phiderivmat
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phivalmat[i][pi*6+pj] = phival[pi][pj];
+	  phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	}
+      }
+    }
+  }
+  
+  outct=0;
+  // Load output position and velocity spanning the first timestep
+  while(outMJD[outct] <= outMJD[0]+timestep) {
+    dt0 = (outMJD[outct] - outMJD[0])/timeunit;
+    for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) vareq_mat[outct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) vareq_mat[outct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+    // Convert the velocity from km/timeunit to km/sec
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+    if(DEBUG>0) cout << "outct = " << outct << ", statevecs = " << targ_statevecs[outct][0] << " "  << targ_statevecs[outct][1] << " "  << targ_statevecs[outct][2] << " "  << targ_statevecs[outct][3] << " " << targ_statevecs[outct][4] << " " << targ_statevecs[outct][5] << " " << "\n";
+    for(pi=0;pi<3;pi++) {
+      for(pj=3;pj<6;pj++) {
+	vareq_mat[outct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+      }
+    }
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	vareq_mat[outct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+      }
+    }
+    outct++;
+  }
+
+  // Finished with the iterations, calculate precise position
+  // and velocity at the end of the first timestep, and store
+  // in targpos[1] and targvel[1], to set up for the next
+  // integration step.
+  dt0 = timestep/timeunit; // units of dt0 are timeunit
+  for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+  for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+  for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+  for(i=1;i<hnum;i++) {
+    for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+  }
+  if(DEBUG>0) cout << "targpos = " << targpos[1][0] << " "  << targpos[1][1] << " " << targpos[1][2] << " " << targvel[1][0]/timeunit/SOLARDAY << " "  << targvel[1][1]/timeunit/SOLARDAY << " "  << targvel[1][2]/timeunit/SOLARDAY << "\n";
+  
+  // Save current value of alpha[1] in oldalpha1
+  for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+  for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+  
+  // Launch full-precision integration
+  stepct=1;
+  mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  while(mjd0 <= planetmjd[endpoint] && outct<outnum) {
+    // Test time-consistency with the planetary ephemerides throughout this timestep
+    for(i=1;i<=hnum;i++) {
+      mjdnow = mjd0+htimes[i];
+      if(fabs(mjdnow-planetmjd[startpoint+stepct*hnum+i-1]) > STATEMJD_TIMETOL) {
+      cerr << "ERROR: time mismatch at point " << stepct*hnum+i << " " << mjdnow << " vs. " << planetmjd[startpoint+stepct*hnum+i-1] << "\n";
+      return(2);
+    }
+    }
+    // Calculate new value of F[1]
+    i=1;
+    tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i], tidemat);
+    for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+    // Re-roll phivalmat[i] into phival
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phival[pi][pj] = phivalmat[i][pi*6+pj];
+      }
+    }
+    // Update the sensitivity matrix with the new tidal parameters.
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+      }
+    }
+    // Calculate the new derivative matrix
+    matXmat(smat, phival, phideriv);
+    // Unroll phimat and phideriv into phivalmat and phiderivmat
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phivalmat[i][pi*6+pj] = phival[pi][pj];
+	phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+      }
+    }
+
+    // Integrate over the next timestep
+    if(stepct==2) {
+      // Obtain new value of alpha[1] by linear extrapolation from the old
+      for(k=0;k<3;k++) alpha[1][k] = 2.0l*oldalpha1[2][k] - oldalpha1[1][k];
+      for(pi=0;pi<36;pi++) phi_alpha[1][pi] = 2.0*old_phi_alpha1[2][pi] - old_phi_alpha1[1][pi];
+    } else if(stepct>2) {
+      // Obtain new value of alpha[1] by quadratic extrapolation from the old
+      for(k=0;k<3;k++) {
+	fita = (oldalpha1[2][k] - 2.0l*oldalpha1[1][k] + oldalpha1[0][k])/2.0l;
+	fitb = (-oldalpha1[2][k] + 4.0l*oldalpha1[1][k] - 3.0l*oldalpha1[0][k])/2.0l;
+	fitc = oldalpha1[0][k];
+	alpha[1][k] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+      for(pi=0;pi<36;pi++) {
+	fita = (old_phi_alpha1[2][pi] - 2.0l*old_phi_alpha1[1][pi] + old_phi_alpha1[0][pi])/2.0l;
+	fitb = (-old_phi_alpha1[2][pi] + 4.0l*old_phi_alpha1[1][pi] - 3.0l*old_phi_alpha1[0][pi])/2.0l;
+	fitc = old_phi_alpha1[0][pi];
+	phi_alpha[1][pi] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+    }
+
+    // Iteratively improve initial estimate of the alpha matrix,
+    // and the A matrix, positions, and velocities that depend on it.
+    for(itct=1;itct<=2;itct++) {
+      // First calculate the A matrix from the best current values of alpha
+      for(j=1;j<hnum;j++) {
+	for(k=0;k<3;k++) A[j][k] = 0.0l;
+	for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0;
+	for(i=j;i<hnum;i++) {
+	  for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	  for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+	}
+      }
+      // predict all the positions and velocities from the A values,
+      // using Everhart Equations 4 and 5
+      for(j=2;j<=hnum;j++) {
+	dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+	for(k=0;k<3;k++) targpos[j][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+	for(k=0;k<3;k++) targvel[j][k] = targvel[1][k] + F[1][k]*dt0;
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0; 
+	for(i=1;i<hnum;i++) {
+	  for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	  for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	  for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	}
+      }
+      // Re-calculate the accelerations (that is, the vector F) at these revised positions
+      for(i=2;i<=hnum;i++) {
+	tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i], tidemat);
+	for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+	// Re-roll phivalmat[i] into phival
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phival[pi][pj] = phivalmat[i][pi*6+pj];
+	  }
+	}
+	// Update the sensitivity matrix with the new tidal parameters.
+	for(pi=3;pi<6;pi++) {
+	  for(pj=0;pj<3;pj++) {
+	    smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	  }
+	}
+	// Calculate the new derivative matrix
+	matXmat(smat, phival, phideriv);
+	// Unroll phimat and phideriv into phivalmat and phiderivmat
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phivalmat[i][pi*6+pj] = phival[pi][pj];
+	    phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	  }
+	}
+      }
+      // Re-calculate alpha based on the revised vector F
+      for(i=2;i<=hnum;i++) {
+	for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+	for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+	for(j=2;j<i;j++) {
+	  for(k=0;k<3;k++) {
+	    alpha[i-1][k] -= alpha[j-1][k];
+	    alpha[i-1][k] /= tvec[i] - tvec[j];
+	  }
+	  for(pi=0;pi<36;pi++) {
+	    phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	    phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	  }
+	}
+      }
+    }
+    // Done with iterations, alpha matrix should be very accurate now.
+    // Calculate a revised A matrix from final-iteration values of alpha
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=j;i<hnum;i++) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+    if(DEBUG>0) {
+      cout << "F matrix, stepct = " << stepct << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    
+    // Load output position and velocity spanning the latest timestep
+    while(outMJD[outct] <= mjd0+timestep && outct<outnum) {
+      dt0 = (outMJD[outct] - mjd0)/timeunit;
+      for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) vareq_mat[outct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+      for(i=1;i<hnum;i++) {
+	for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) vareq_mat[outct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      // Convert the velocity from km/timeunit to km/sec
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+      for(pi=0;pi<3;pi++) {
+	for(pj=3;pj<6;pj++) {
+	  vareq_mat[outct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+	}
+      }
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  vareq_mat[outct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+	}
+      }
+      outct++;
+    }
+
+    // Calculate precise position and velocity at the end of this timestep, and store
+    // in targpos[1] and targvel[1], to set up for the next integration step.
+    dt0 = timestep/timeunit; // units of dt0 are timeunit
+    for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+  
+    // Cycle oldalpha1
+    for(k=0;k<3;k++) oldalpha1[0][k] = oldalpha1[1][k];
+    for(k=0;k<3;k++) oldalpha1[1][k] = oldalpha1[2][k];
+    for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[0][pi] = old_phi_alpha1[1][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[1][pi] = old_phi_alpha1[2][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+    
+    stepct++;
+    mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  }
+  return(0);
+}
+
+
+// integrate_vareq02: October 09, 2025:
+// Using integrate_everhart_vareq02() as the central caculating engine,
+// integrate an orbit forward and/or backward in time, as needed, integrating
+// both the state vectors (position and velocity) and the variational equations.
+// In order to obtain a major increase in speed, requires input vectors
+// planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, and
+// planet_forward_statevecs to have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum, where the backward vectors are in time-reversed order with
+// MJD and velocity sign-flipped. Files containing such vectors, in both backwards
+// and forwards directions, can be produced with the required sampling for
+// Everhart integration at a specific hnum and timestep using Horizons_resample.cpp.
+// Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable.
+int integrate_vareq02(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace)
+{
+  long i,j,k,pi,pj;
+  i=j=k=pi=pj=0;
+  int outnum = 0;
+  int ref_subct=0;
+  int status=0;
+  long startpoint,endpoint,refpoint;
+  outMJD={};
+  targ_statevecs={};
+  vareq_mat={};
+  
+  if(DEBUG>0) cout << "Inside integrate_vareq02()\n";
+
+  // Match mjdstart and mjdend to forward planet file.
+  startpoint = endpoint = refpoint = -99;
+  for(j=0;j<long(planet_forward_mjd.size());j++) {
+    if(fabs(planet_forward_mjd[j]-mjdstart) < STATEMJD_TIMETOL) startpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdref) < STATEMJD_TIMETOL) refpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdend) < STATEMJD_TIMETOL) endpoint = j;
+  }
+  if(startpoint<0 || refpoint<0 || endpoint<0) {
+    cerr << "ERROR: mjdstart " << mjdstart << " and/or mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the planet files\n";
+    return(1);
+  } else {
+    cout << "mjdstart " << mjdstart << " corresponds to timestep " << startpoint << " in the forward planet files\n";
+    cout << "mjdref " << mjdref << " corresponds to timestep " << refpoint << " in the forward planet files\n";
+    cout << "mjdend " << mjdend << " corresponds to timestep " << endpoint << " in the forward planet files\n";
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_vareq02 finds end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: integrate_vareq02 finds reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: integrate_vareq02 finds reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+
+  outnum = round(mjdend-mjdstart) + 1; // Daily sampling on output is hard-coded, for now
+  
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  make_dmat(outnum, 36, vareq_mat);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = round(mjdstart) + static_cast<double>(i);
+  
+  // Calculate the entry corresponding to refpoint in the shorter,
+  // problem-specific vectors targ_statevecs and outMJD.
+  ref_subct = round(mjdref-mjdstart);
+
+  if(refpoint<endpoint) {
+    // Perform forward integration
+    
+    long forwardnum = outnum - ref_subct;
+    vector <double> forwardMJD;
+    vector <vector <double>> forward_statevecs;
+    vector <vector <double>> forward_vareq;
+    cout << "Launching integrate_everhart_vareq02() to perform forward integration\n";
+    status = integrate_everhart_vareq02(planetnum, planet_forward_mjd, planetmasses, planet_forward_statevecs, starting_statevec, refpoint, endpoint, forwardMJD,  forward_statevecs, forward_vareq, timestep, hnum, hspace);
+    cout << "Foward integration complete with output vector lengths " << forwardMJD.size() << " and " << forward_statevecs.size() << "\n";
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart_vareq02() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<forwardnum;i++) {
+      if(DEBUG>0) cout << "i, forwardnum, ref_subct+i, outnum: " << i << " " << forwardnum<< " " << ref_subct+i << " " << outnum << " " << "\n";
+      targ_statevecs[ref_subct+i] = forward_statevecs[i];
+      vareq_mat[ref_subct+i] = forward_vareq[i];
+    }
+  }
+  if(refpoint>startpoint) {
+    // Perform a backward integration.
+    // Match mjdstart and mjdref to backward planet file.
+    long backrefpoint = -99;
+    long backstartpoint = -99;
+    for(j=0;j<long(planet_backward_mjd.size());j++) {
+      if(fabs(planet_backward_mjd[j]+mjdstart) < STATEMJD_TIMETOL) backstartpoint = j;
+      if(fabs(planet_backward_mjd[j]+mjdref) < STATEMJD_TIMETOL) backrefpoint = j;
+    }
+    if(backstartpoint<0 || backrefpoint<0) {
+      cerr << "ERROR: mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the backward planet files\n";
+      return(1);
+    } else {
+      cout << "mjdstart " << mjdstart << " corresponds to timestep " << backstartpoint << " in the backward planet files\n";
+      cout << "mjdref " << mjdref << " corresponds to timestep " << backrefpoint << " in the backward planet files\n";
+      vector <vector <double>> backward_statevecs;
+      vector <vector <double>> backward_vareq;
+      vector <double> backward_startvec;
+      vector <double> backwardMJD;
+
+      // Copy the starting state vector into backward_startvec
+      backward_startvec = starting_statevec;
+      // Sign-flip the velocity
+      for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+      cout << "Launching integrate_everhart_vareq02() to perform backward integration\n";
+      status = integrate_everhart_vareq02(planetnum, planet_backward_mjd, planetmasses, planet_backward_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD,  backward_statevecs, backward_vareq, timestep, hnum, hspace);
+      cout << "Backward integration complete with output vector lengths " << backwardMJD.size() << " and " << backward_statevecs.size() << "\n";
+      if(status!=0) {
+	cerr << "ERROR: integrate_everhart_vareq02() returned error status " << status << "\n";
+	return(status);
+      }
+      for(i=0;i<=ref_subct;i++) {
+	if(DEBUG>0) cout << "i, ref_subct-i, outnum: " << i << " " << ref_subct-i << " " << outnum << " " << "\n";
+	// Position is copied verbatim
+	for(k=0;k<3;k++) targ_statevecs[ref_subct-i][k] = backward_statevecs[i][k];
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) targ_statevecs[ref_subct-i][k] = -backward_statevecs[i][k];
+	vareq_mat[ref_subct-i] = backward_vareq[i];
+	// Terms with velocity in only the numerator or only the denominator require a sign-flip:
+	for(pi=0;pi<3;pi++) {
+	  for(pj=3;pj<6;pj++) {
+	    vareq_mat[ref_subct-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the denominator
+	  }
+	}
+	for(pi=3;pi<6;pi++) {
+	  for(pj=0;pj<3;pj++) {
+	    vareq_mat[ref_subct-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the numerator
+	  }
+	}
+      }
+    }
+  }
+  return(0);
+}
+
+
+// integrate_everhart02: October 09, 2025
+// Like integrate_everhart_vareq02, but integrates only the state vectors,
+// not the variational equations. In order to obtain a major increase in
+// speed, this function and integrate_everhart_vareq02() require that the
+// input vectors planemjd and planet_statevecs
+// have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum. Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable.
+// Planetary ephemeris files with the required sampling for
+// Everhart integration at a specific hnum and timestep can be produced
+// using Horizons_resample.cpp.
+// Note: this function handles only forward integration, but it is
+// designed to serve as the central engine for integrate_vareq02(), which
+// handles integration in both backward and forward directions as needed.
+int integrate_everhart02(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace)
+{
+  vector <vector <double>> targpos;
+  vector <vector <double>> targvel;
+  vector <double> ldvec;
+  long i,j,k;
+  i=j=k=0;
+  int outnum = round(planetmjd[endpoint] - planetmjd[startpoint])+1;
+  double dt0=0L;
+  double mjd0;
+  double mjdnow;
+  vector <double> htimes;
+  vector <double> tvec; // one-indexed vector in units of timeunit
+  vector <vector <double>> F;
+  vector <vector <double>> alpha;
+  vector <vector <double>> oldalpha1;
+  vector <vector <double>> A;
+  vector <vector <double>> c;
+  vector <vector <double>> tmat; // tmat[n][j] = tvec[n] - tvec[j]
+  double timeunit = timestep/TIMEDOWNSCALE; // Units are solar days
+                                            // Purpose is to keep large powers of time from getting too large
+  long itct;
+  long stepct;
+  long outct=0;
+  long horder=0;
+  double fita,fitb,fitc;
+  fita = fitb = fitc = 0.0;
+  
+  if(DEBUG>0) {
+    cout << "Inside integrate_everhart02\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+  }
+  
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_everhart02 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: integrate_everhart02 " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  }
+  // Allocate the output vectors
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = planetmjd[startpoint] + static_cast<double>(i);
+
+  // Everything after this will be one-indexed rather than zero-indexed,
+  // for consistency with the equations in Everhart (1974)
+  make_dmat(hnum+1, 3, F);
+  make_dmat(hnum+1, 3, alpha);
+  make_dmat(3, 3, oldalpha1);
+  make_dmat(hnum+1, 3, A);
+  make_dvec(hnum+1, htimes);
+  make_dmat(hnum+1, hnum+1, tmat);
+  make_dmat(hnum+1, hnum+1, c);
+  make_dvec(hnum+1, tvec);
+
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_dmat(hnum+1, 3, targpos);
+  make_dmat(hnum+1, 3, targvel);
+
+  // Load the time vector tvec.
+  // All of this is one-indexed, like all the calculations that follow,
+  // for consistency with Everhart (1974).
+  mjd0 = planetmjd[startpoint];
+  for(i=1;i<=hnum;i++) {
+    htimes[i] = timestep*hspace[i-1]; // Units are days
+    mjdnow = mjd0+htimes[i];
+    if(fabs(mjdnow - planetmjd[startpoint+i-1]) > STATEMJD_TIMETOL) {
+      cerr << "ERROR: time mismatch at point " << startpoint+i-1 << " " << mjdnow << " vs. " << planetmjd[startpoint+i-1] << "\n";
+      return(2);
+    }
+    tvec[i] = htimes[i]/timeunit; // Units are timeunit
+  }
+  for(i=1;i<=hnum;i++) {
+    for(j=1;j<=hnum;j++) tmat[i][j] = tvec[i] - tvec[j]; // Units are timeunit
+  }
+  // Load c matrix
+  c[1][1] = 1.0l;
+  for(i=2;i<=hnum;i++) {
+    c[i][1] = -tvec[i]*c[i-1][1];
+    for(j=2;j<i;j++) c[i][j] = c[i-1][j-1] - tvec[i]*c[i-1][j];
+    c[i][i] = 1.0l;
+  }
+
+  // Load the starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[1][k] = starting_statevec[k];
+    targvel[1][k] = starting_statevec[3+k]*timeunit*SOLARDAY; // units are km/timeunit
+  }
+
+  // Calculate the initial acceleration and store it in the F matrix
+  i=1;
+  accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i]); // Acceleration is exact
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  
+  if(DEBUG>0) {
+    cout << "Starting conditions:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+    
+  // Using the approximation of constant acceleration,
+  // calculate the position, velocity, and phival at tvec[2]
+  i=2;
+  dt0 = tvec[i] - tvec[i-1]; // units of dt0 are timeunit
+  for(k=0;k<3;k++) {
+    targpos[i][k] = targpos[i-1][k] + targvel[i-1][k]*dt0 + 0.5l*F[i-1][k]*dt0*dt0;
+    targvel[i][k] = targvel[i-1][k] + F[i-1][k]*dt0;
+  }
+  
+  // Calculate the acceleration and phider at tvec[2], and store it in the F matrix
+  accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i]);
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(DEBUG>0) {
+    cout << "Constant acceleration approx:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+  
+  // Bootstrap iterations. horder is the highest term considered for F.
+  horder=2;
+  for(itct=1;itct<=hnum+3;itct++) {
+    for(i=2;i<=horder;i++) {
+      for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+      for(j=2;j<i;j++) {
+	for(k=0;k<3;k++) {
+	  alpha[i-1][k] -= alpha[j-1][k];
+	  alpha[i-1][k] /= tvec[i] - tvec[j];
+	}
+      }
+    }
+
+    // Make sure high-order terms of matrix A start out at zero.
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+    }
+    // Calculate all available terms in matrix A from matrix alpha
+    for(j=1;j<horder;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(i=horder-1;i>=j;i--) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+      }
+    }
+  
+    if(DEBUG>0) {
+      cout << "F matrix, horder = " << horder << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    if(horder<hnum) horder++;
+    for(j=2;j<=horder;j++) {
+      dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+      for(k=0;k<3;k++) targpos[j][k] = targvel[j][k] = 0.0l;
+      for(i=horder-1;i>=1;i--) {
+ 	for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      for(k=0;k<3;k++) targpos[j][k] += targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targvel[j][k] += targvel[1][k] + F[1][k]*dt0;
+    }
+    // Re-calculate the accelerations (that is, the vector F) at these revised positions
+    for(i=2;i<=horder;i++) {
+      accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i]);
+      for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      if(DEBUG>0) {
+	cout << "Interating at itct " << itct << ", horder = " << horder << "\n";
+	cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+	cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+	cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+      }
+    }
+  }
+  
+  outct=0;
+  // Load output position and velocity spanning the first timestep
+  while(outMJD[outct] <= outMJD[0]+timestep) {
+    dt0 = (outMJD[outct] - outMJD[0])/timeunit;
+    for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+    // Convert the velocity from km/timeunit to km/sec
+    for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+    if(DEBUG>0) cout << "outct = " << outct << ", statevecs = " << targ_statevecs[outct][0] << " "  << targ_statevecs[outct][1] << " "  << targ_statevecs[outct][2] << " "  << targ_statevecs[outct][3] << " " << targ_statevecs[outct][4] << " " << targ_statevecs[outct][5] << " " << "\n";
+    outct++;
+  }
+
+  // Finished with the iterations, calculate precise position
+  // and velocity at the end of the first timestep, and store
+  // in targpos[1] and targvel[1], to set up for the next
+  // integration step.
+  dt0 = timestep/timeunit; // units of dt0 are timeunit
+  for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+  for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+  for(i=1;i<hnum;i++) {
+    for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+  }
+  if(DEBUG>0) cout << "targpos = " << targpos[1][0] << " "  << targpos[1][1] << " " << targpos[1][2] << " " << targvel[1][0]/timeunit/SOLARDAY << " "  << targvel[1][1]/timeunit/SOLARDAY << " "  << targvel[1][2]/timeunit/SOLARDAY << "\n";
+  
+  // Save current value of alpha[1] in oldalpha1
+  for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+
+  // Launch full-precision integration
+  stepct=1;
+  mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  while(mjd0 <= planetmjd[endpoint] && outct<outnum) {
+    // Test time-consistency with the planetary ephemerides throughout this timestep.
+    for(i=1;i<=hnum;i++) {
+      mjdnow = mjd0+htimes[i];
+      if(fabs(mjdnow-planetmjd[startpoint+stepct*hnum+i-1]) > STATEMJD_TIMETOL) {
+      cerr << "ERROR: time mismatch at point " << stepct*hnum+i << " " << mjdnow << " vs. " << planetmjd[startpoint+stepct*hnum+i-1] << "\n";
+      return(2);
+    }
+    }
+    // Calculate new value of F[1]
+    i=1;
+    accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i]);
+    for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+
+    // Integrate over the next timestep
+    if(stepct==2) {
+      // Obtain new value of alpha[1] by linear extrapolation from the old
+      for(k=0;k<3;k++) alpha[1][k] = 2.0l*oldalpha1[2][k] - oldalpha1[1][k];
+    } else if(stepct>2) {
+      // Obtain new value of alpha[1] by quadratic extrapolation from the old
+      for(k=0;k<3;k++) {
+	fita = (oldalpha1[2][k] - 2.0l*oldalpha1[1][k] + oldalpha1[0][k])/2.0l;
+	fitb = (-oldalpha1[2][k] + 4.0l*oldalpha1[1][k] - 3.0l*oldalpha1[0][k])/2.0l;
+	fitc = oldalpha1[0][k];
+	alpha[1][k] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+    }
+
+    // Iteratively improve initial estimate of the alpha matrix,
+    // and the A matrix, positions, and velocities that depend on it.
+    for(itct=1;itct<=2;itct++) {
+      // First calculate the A matrix from the best current values of alpha
+      for(j=1;j<hnum;j++) {
+	for(k=0;k<3;k++) A[j][k] = 0.0l;
+	for(i=j;i<hnum;i++) {
+	  for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	}
+      }
+      // predict all the positions and velocities from the A values,
+      // using Everhart Equations 4 and 5
+      for(j=2;j<=hnum;j++) {
+	dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+	for(k=0;k<3;k++) targpos[j][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+	for(k=0;k<3;k++) targvel[j][k] = targvel[1][k] + F[1][k]*dt0;
+	for(i=1;i<hnum;i++) {
+	  for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	  for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	}
+      }
+      // Re-calculate the accelerations (that is, the vector F) at these revised positions
+      for(i=2;i<=hnum;i++) {
+	accelcalc02(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i]);
+	for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      }
+      // Re-calculate alpha based on the revised vector F
+      for(i=2;i<=hnum;i++) {
+	for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+	for(j=2;j<i;j++) {
+	  for(k=0;k<3;k++) {
+	    alpha[i-1][k] -= alpha[j-1][k];
+	    alpha[i-1][k] /= tvec[i] - tvec[j];
+	  }
+	}
+      }
+    }
+    // Done with iterations, alpha matrix should be very accurate now.
+    // Calculate a revised A matrix from final-iteration values of alpha
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(i=j;i<hnum;i++) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+      }
+    }
+    if(DEBUG>0) {
+      cout << "F matrix, stepct = " << stepct << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    
+    // Load output position and velocity spanning the latest timestep
+    while(outMJD[outct] <= mjd0+timestep && outct<outnum) {
+      dt0 = (outMJD[outct] - mjd0)/timeunit;
+      for(k=0;k<3;k++) targ_statevecs[outct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] = targvel[1][k] + F[1][k]*dt0;
+      for(i=1;i<hnum;i++) {
+	for(k=0;k<3;k++) targ_statevecs[outct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targ_statevecs[outct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      // Convert the velocity from km/timeunit to km/sec
+      for(k=0;k<3;k++) targ_statevecs[outct][3+k] /= timeunit*SOLARDAY;
+      outct++;
+    }
+
+    // Calculate precise position and velocity at the end of this timestep, and store
+    // in targpos[1] and targvel[1], to set up for the next integration step.
+    dt0 = timestep/timeunit; // units of dt0 are timeunit
+    for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+    }
+  
+    // Cycle oldalpha1
+    for(k=0;k<3;k++) oldalpha1[0][k] = oldalpha1[1][k];
+    for(k=0;k<3;k++) oldalpha1[1][k] = oldalpha1[2][k];
+    for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+    stepct++;
+    mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  }
+  return(0);
+}
+
+
+// integrate_statevec04: October 13, 2025:
+// Like integrate_vareq02, but integrates only the state vectors (positions
+// and velocity, not the variational equations.
+// In order to obtain a major increase in speed, requires input vectors
+// planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, and
+// planet_forward_statevecs to have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum, where the backward vectors are in time-reversed order with
+// MJD and velocity sign-flipped. Files containing such vectors, in both backwards
+// and forwards directions, can be produced with the required sampling for
+// Everhart integration at a specific hnum and timestep using Horizons_resample.cpp.
+// Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable.
+int integrate_statevec04(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, vector <double> &outMJD,  vector <vector <double>> &targ_statevecs, double timestep, int hnum, const vector <double> &hspace)
+{
+  long i,j,k,pi,pj;
+  i=j=k=pi=pj=0;
+  int outnum = 0;
+  int ref_subct=0;
+  int status=0;
+  long startpoint,endpoint,refpoint;
+  outMJD={};
+  targ_statevecs={};
+  
+  if(DEBUG>0) cout << "Inside integrate_statevec04\n";
+
+  // Match mjdstart and mjdend to forward planet file.
+  startpoint = endpoint = refpoint = -99;
+  for(j=0;j<long(planet_forward_mjd.size());j++) {
+    if(fabs(planet_forward_mjd[j]-mjdstart) < STATEMJD_TIMETOL) startpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdref) < STATEMJD_TIMETOL) refpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdend) < STATEMJD_TIMETOL) endpoint = j;
+  }
+  if(startpoint<0 || refpoint<0 || endpoint<0) {
+    cerr << "ERROR: mjdstart " << mjdstart << " and/or mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the planet files\n";
+    return(1);
+  } else {
+    cout << "mjdstart " << mjdstart << " corresponds to timestep " << startpoint << " in the forward planet files\n";
+    cout << "mjdref " << mjdref << " corresponds to timestep " << refpoint << " in the forward planet files\n";
+    cout << "mjdend " << mjdend << " corresponds to timestep " << endpoint << " in the forward planet files\n";
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec04 finds end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: integrate_statevec04 finds reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: integrate_statevec04 finds reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+
+  outnum = round(mjdend-mjdstart) + 1; // Daily sampling on output is hard-coded, for now
+  
+  make_dvec(outnum, outMJD);
+  make_dmat(outnum, 6, targ_statevecs);
+  // Load outMJD with the actual output times
+  for(i=0;i<outnum;i++) outMJD[i] = round(mjdstart) + static_cast<double>(i);
+  
+  // Calculate the entry corresponding to refpoint in the shorter,
+  // problem-specific vectors targ_statevecs amd outMJD.
+  ref_subct = round(mjdref-mjdstart);
+
+  if(refpoint<endpoint) {
+    // Perform forward integration
+    
+    long forwardnum = outnum - ref_subct;
+    vector <double> forwardMJD;
+    vector <vector <double>> forward_statevecs;
+    cout << "Launching integrate_everhart02() to perform forward integration\n";
+    status = integrate_everhart02(planetnum, planet_forward_mjd, planetmasses, planet_forward_statevecs, starting_statevec, refpoint, endpoint, forwardMJD,  forward_statevecs, timestep, hnum, hspace);
+    cout << "Foward integration complete with output vector lengths " << forwardMJD.size() << " and " << forward_statevecs.size() << "\n";
+    if(status!=0) {
+      cerr << "ERROR: integrate_everhart02() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<forwardnum;i++) {
+      if(DEBUG>0) cout << "i, forwardnum, ref_subct+i, outnum: " << i << " " << forwardnum<< " " << ref_subct+i << " " << outnum << " " << "\n";
+      targ_statevecs[ref_subct+i] = forward_statevecs[i];
+    }
+  }
+  if(refpoint>startpoint) {
+    // Perform a backward integration.
+    // Match mjdstart and mjdref to backward planet file.
+    long backrefpoint = -99;
+    long backstartpoint = -99;
+    for(j=0;j<long(planet_backward_mjd.size());j++) {
+      if(fabs(planet_backward_mjd[j]+mjdstart) < STATEMJD_TIMETOL) backstartpoint = j;
+      if(fabs(planet_backward_mjd[j]+mjdref) < STATEMJD_TIMETOL) backrefpoint = j;
+    }
+    if(backstartpoint<0 || backrefpoint<0) {
+      cerr << "ERROR: mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the backward planet files\n";
+      return(1);
+    } else {
+      cout << "mjdstart " << mjdstart << " corresponds to timestep " << backstartpoint << " in the backward planet files\n";
+      cout << "mjdref " << mjdref << " corresponds to timestep " << backrefpoint << " in the backward planet files\n";
+      vector <vector <double>> backward_statevecs;
+      vector <double> backward_startvec;
+      vector <double> backwardMJD;
+
+      // Copy the starting state vector into backward_startvec
+      backward_startvec = starting_statevec;
+      // Sign-flip the velocity
+      for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+      cout << "Launching integrate_everhart02() to perform backward integration\n";
+      status = integrate_everhart02(planetnum, planet_backward_mjd, planetmasses, planet_backward_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD,  backward_statevecs, timestep, hnum, hspace);
+      cout << "Backward integration complete with output vector lengths " << backwardMJD.size() << " and " << backward_statevecs.size() << "\n";
+      if(status!=0) {
+	cerr << "ERROR: integrate_everhart_vareq02() returned error status " << status << "\n";
+	return(status);
+      }
+      for(i=0;i<=ref_subct;i++) {
+	if(DEBUG>0) cout << "i, ref_subct-i, outnum: " << i << " " << ref_subct-i << " " << outnum << " " << "\n";
+	// Position is copied verbatim
+	for(k=0;k<3;k++) targ_statevecs[ref_subct-i][k] = backward_statevecs[i][k];
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) targ_statevecs[ref_subct-i][k] = -backward_statevecs[i][k];
+      }
+    }
+  }
+  return(0);
+}
+
+// obsint_everhart_vareq01: October 14, 2025
+// Like integrate_everhart_vareq02, but instead of evaluating
+// output every day, evaluates it only at specifing UTC times
+// provided in the vector obsMJD. This vector is assumed to
+// provide times in the same time system as the planetary ephemeris
+// files, which will be TDB if they are downloaded from JPL with
+// default parameters (recommended). Hence, if your observing times
+// are in UTC or TAI (likely), the calling function must convert
+// them to TDB before calling the current program.
+//
+// Description of ancestor program integrate_everhart_vareq02:
+// Everhart integrator for the variational equations, as well as
+// position and velocity. In order to obtain a major increase in
+// speed, this version requires that the input vectors planemjd and planet_statevecs
+// have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum. Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable.
+// Planetary ephemeris files with the required sampling for
+// Everhart integration at a specific hnum and timestep can be produced
+// using Horizons_resample.cpp.
+// Note: this function handles only forward integration, but it is
+// designed to serve as the central engine for integrate_vareq02(), which
+// handles integration in both backward and forward directions as needed.
+int obsint_everhart_vareq01(int planetnum, const vector <double> &planetmjd, const vector <double> &planetmasses, const vector <vector <double>> &planet_statevecs, const vector <double> &starting_statevec, int startpoint, int endpoint, const vector <double> &obsMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int verbose)
+{
+  vector <vector <double>> targpos;
+  vector <vector <double>> targvel;
+  vector <double> ldvec;
+  long i,j,k;
+  i=j=k=0;
+  long obsnum = obsMJD.size();
+  long obsct=0;
+  double dt0=0L;
+  double mjd0;
+  double mjdnow;
+  vector <double> htimes;
+  vector <double> tvec; // one-indexed vector in units of timeunit
+  vector <vector <double>> F;
+  vector <vector <double>> alpha;
+  vector <vector <double>> oldalpha1;
+  vector <vector <double>> A;
+  vector <vector <double>> c;
+  vector <vector <double>> tmat; // tmat[n][j] = tvec[n] - tvec[j]
+  double timeunit = timestep/TIMEDOWNSCALE; // Units are solar days
+                                            // Purpose is to keep large powers of time from getting too large
+  long itct;
+  long stepct;
+  long horder=0;
+  vector <vector <double>> tidemat;
+  vector <vector <double>> phival;
+  vector <vector <double>> smat;
+  vector <vector <double>> phideriv;
+  vector <vector <double>> phivalmat;
+  vector <vector <double>> phiderivmat;
+  vector <vector <double>> phi_alpha;
+  vector <vector <double>> old_phi_alpha1;
+  vector <vector <double>> phi_A;
+  int pi,pj;
+  double fita,fitb,fitc;
+  fita = fitb = fitc = 0.0;
+  
+  if(verbose>0) {
+    cout << "Inside obsint_everhart_vareq01()\n";
+    cout << "Input state vector: " << starting_statevec[0] << " "  << starting_statevec[1] << " "  << starting_statevec[2] << " "  << starting_statevec[3] << " "  << starting_statevec[4] << " "  << starting_statevec[5] << "\n";
+    cout << "startpoint, endpoint, planetmjd.size(): " << startpoint << " " << endpoint << " " << planetmjd.size() << "\n";
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: obsint_everhart_vareq01 called with end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(startpoint<0 || endpoint>=long(planetmjd.size())) {
+    cerr << "ERROR: obsint_everhart_vareq01 called with starting point " << startpoint << " or endpoint" << endpoint << " outside range of planet vectors (0 - " << planetmjd.size() << ")\n";
+    return(1);
+  }
+  // Allocate the output vectors
+  make_dmat(obsnum, 6, targ_statevecs);
+  make_dmat(obsnum, 36, vareq_mat);
+
+  // Everything after this will be one-indexed rather than zero-indexed,
+  // for consistency with the equations in Everhart (1974)
+  make_dmat(hnum+1, 3, F);
+  make_dmat(hnum+1, 3, alpha);
+  make_dmat(3, 3, oldalpha1);
+  make_dmat(hnum+1, 3, A);
+  make_dvec(hnum+1, htimes);
+  make_dmat(hnum+1, hnum+1, tmat);
+  make_dmat(hnum+1, hnum+1, c);
+  make_dvec(hnum+1, tvec);
+  make_dmat(6,6,phival);
+  make_dmat(6,6,smat);
+  make_dmat(6,6,phideriv);
+  make_dmat(hnum+1,36,phivalmat);
+  make_dmat(hnum+1,36,phiderivmat);
+  make_dmat(hnum+1,36, phi_alpha);
+  make_dmat(hnum+1,36, phi_A);
+  make_dmat(3, 36, old_phi_alpha1);
+
+  // Make sure that relevant vectors for the polynomial fitting
+  // are all large enough.
+  make_dmat(hnum+1, 3, targpos);
+  make_dmat(hnum+1, 3, targvel);
+
+  // Load the time vector tvec.
+  // All of this is one-indexed, like all the calculations that follow,
+  // for consistency with Everhart (1974).
+  mjd0 = planetmjd[startpoint];
+  for(i=1;i<=hnum;i++) {
+    htimes[i] = timestep*hspace[i-1]; // Units are days
+    mjdnow = mjd0+htimes[i];
+    if(fabs(mjdnow - planetmjd[startpoint+i-1]) > STATEMJD_TIMETOL) {
+      cerr << "ERROR: time mismatch at point " << startpoint+i-1 << " " << mjdnow << " vs. " << planetmjd[startpoint+i-1] << "\n";
+      return(2);
+    }
+    tvec[i] = htimes[i]/timeunit; // Units are timeunit
+  }
+  for(i=1;i<=hnum;i++) {
+    for(j=1;j<=hnum;j++) tmat[i][j] = tvec[i] - tvec[j]; // Units are timeunit
+  }
+  // Load c matrix
+  c[1][1] = 1.0l;
+  for(i=2;i<=hnum;i++) {
+    c[i][1] = -tvec[i]*c[i-1][1];
+    for(j=2;j<i;j++) c[i][j] = c[i-1][j-1] - tvec[i]*c[i-1][j];
+    c[i][i] = 1.0l;
+  }
+
+  // Load the starting position and velocity
+  for(k=0;k<3;k++) {
+    targpos[1][k] = starting_statevec[k];
+    targvel[1][k] = starting_statevec[3+k]*timeunit*SOLARDAY; // units are km/timeunit
+  }
+  // Initialize the variational equation matrix phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      if(pi==pj) phival[pi][pj] = 1.0;
+      else phival[pi][pj] = 0.0;
+    }
+  }
+  // Initialize the sensitivity matrix smat. Only the lower-left quadrant will ever change.
+  for(pi=0;pi<3;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      if(pi == pj-3) smat[pi][pj] = 1.0;
+      else smat[pi][pj] = 0.0;
+    }
+  }
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+    for(pj=3;pj<6;pj++) {
+      smat[pi][pj] = 0.0;
+    }
+  }
+
+  // Calculate the initial acceleration and store it in the F matrix
+  i=1;
+  tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat); // Acceleration is exact
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phival and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  if(verbose>0) {
+    cout << "Starting conditions:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+
+  // Using the approximation of constant acceleration,
+  // calculate the position, velocity, and phival at tvec[2]
+  i=2;
+  dt0 = tvec[i] - tvec[i-1]; // units of dt0 are timeunit
+  for(k=0;k<3;k++) {
+    targpos[i][k] = targpos[i-1][k] + targvel[i-1][k]*dt0 + 0.5l*F[i-1][k]*dt0*dt0;
+    targvel[i][k] = targvel[i-1][k] + F[i-1][k]*dt0;
+  }
+  for(pi=0;pi<36;pi++) {
+    phivalmat[i][pi] = phivalmat[i-1][pi] + phiderivmat[i-1][pi]*dt0;
+  }
+  
+  // Calculate the acceleration and phider at tvec[2], and store it in the F matrix
+  if(verbose>0) cout << "Launching tidecalc01 on planet_statevecs[" << startpoint+i-1 << "], targpos[" << i << "], F[" << i << "]\n";
+  tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat);
+  if(verbose>0) cout << "Finished with tidecalc01\n";
+  for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+  if(verbose>0) {
+    cout << "Constant acceleration approx:\n";
+    cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+    cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+    cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+  }
+
+  // Re-roll phivalmat[i] into phival
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phival[pi][pj] = phivalmat[i][pi*6+pj];
+    }
+  }
+  // Update the sensitivity matrix with the new tidal parameters.
+  for(pi=3;pi<6;pi++) {
+    for(pj=0;pj<3;pj++) {
+      smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+    }
+  }
+  // Calculate the new derivative matrix
+  matXmat(smat, phival, phideriv);
+  // Unroll phimat and phideriv into phivalmat and phiderivmat
+  for(pi=0;pi<6;pi++) {
+    for(pj=0;pj<6;pj++) {
+      phivalmat[i][pi*6+pj] = phival[pi][pj];
+      phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+    }
+  }
+  
+  // Bootstrap iterations. horder is the highest term considered for F.
+  horder=2;
+  for(itct=1;itct<=hnum+3;itct++) {
+    for(i=2;i<=horder;i++) {
+      for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+      for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+      for(j=2;j<i;j++) {
+	for(k=0;k<3;k++) {
+	  alpha[i-1][k] -= alpha[j-1][k];
+	  alpha[i-1][k] /= tvec[i] - tvec[j];
+	}
+	for(pi=0;pi<36;pi++) {
+	  phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	  phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	}
+      }
+    }
+
+    // Make sure high-order terms of matrix A start out at zero.
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+    }
+    // Calculate all available terms in matrix A from matrix alpha
+    for(j=1;j<horder;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=horder-1;i>=j;i--) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+  
+    if(verbose>0) {
+      cout << "F matrix, horder = " << horder << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+    if(horder<hnum) horder++;
+    for(j=2;j<=horder;j++) {
+      dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+      for(k=0;k<3;k++) targpos[j][k] = targvel[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] = 0.0l;
+      for(i=horder-1;i>=1;i--) {
+ 	for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      for(k=0;k<3;k++) targpos[j][k] += targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targvel[j][k] += targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) phivalmat[j][pi] += phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    }
+    // Re-calculate the accelerations (that is, the vector F) at these revised positions
+    for(i=2;i<=horder;i++) {
+      tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+i-1], targpos[i], F[i], tidemat);
+      for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+      if(verbose>0) {
+	cout << "Interating at itct " << itct << ", horder = " << horder << "\n";
+	cout << "F[" << i << "]: " << F[i][0] << " " << F[i][1] << " " << F[i][2] << "\n";
+	cout << "targpos[" << i << "]: " << targpos[i][0] << " " << targpos[i][1] << " " << targpos[i][2] << "\n";
+	cout << "targvel[" << i << "]: " << targvel[i][0]/timeunit/SOLARDAY << " " << targvel[i][1]/timeunit/SOLARDAY << " " << targvel[i][2]/timeunit/SOLARDAY << "\n";
+      }
+      // Re-roll phivalmat[i] into phival
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phival[pi][pj] = phivalmat[i][pi*6+pj];
+	}
+      }
+      // Update the sensitivity matrix with the new tidal parameters.
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	}
+      }
+      // Calculate the new derivative matrix
+      matXmat(smat, phival, phideriv);
+      // Unroll phimat and phideriv into phivalmat and phiderivmat
+      for(pi=0;pi<6;pi++) {
+	for(pj=0;pj<6;pj++) {
+	  phivalmat[i][pi*6+pj] = phival[pi][pj];
+	  phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	}
+      }
+    }
+  }
+  
+  obsct=0;
+  // Load output position and velocity spanning the first timestep
+  while(obsct<obsnum && obsMJD[obsct] <= mjd0+timestep) {
+    dt0 = (obsMJD[obsct] - mjd0)/timeunit;
+    for(k=0;k<3;k++) targ_statevecs[obsct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targ_statevecs[obsct][3+k] = targvel[1][k] + F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) vareq_mat[obsct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targ_statevecs[obsct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targ_statevecs[obsct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) vareq_mat[obsct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+    // Convert the velocity from km/timeunit to km/sec
+    for(k=0;k<3;k++) targ_statevecs[obsct][3+k] /= timeunit*SOLARDAY;
+    if(verbose>0) cout << "obsct = " << obsct << ", statevecs = " << targ_statevecs[obsct][0] << " "  << targ_statevecs[obsct][1] << " "  << targ_statevecs[obsct][2] << " "  << targ_statevecs[obsct][3] << " " << targ_statevecs[obsct][4] << " " << targ_statevecs[obsct][5] << " " << "\n";
+    for(pi=0;pi<3;pi++) {
+      for(pj=3;pj<6;pj++) {
+	vareq_mat[obsct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+      }
+    }
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	vareq_mat[obsct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+      }
+    }
+    obsct++;
+  }
+
+  // Finished with the iterations, calculate precise position
+  // and velocity at the end of the first timestep, and store
+  // in targpos[1] and targvel[1], to set up for the next
+  // integration step.
+  dt0 = timestep/timeunit; // units of dt0 are timeunit
+  for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+  for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+  for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+  for(i=1;i<hnum;i++) {
+    for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+  }
+  if(verbose>0) cout << "targpos = " << targpos[1][0] << " "  << targpos[1][1] << " " << targpos[1][2] << " " << targvel[1][0]/timeunit/SOLARDAY << " "  << targvel[1][1]/timeunit/SOLARDAY << " "  << targvel[1][2]/timeunit/SOLARDAY << "\n";
+  
+  // Save current value of alpha[1] in oldalpha1
+  for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+  for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+  
+  // Launch full-precision integration
+  stepct=1;
+  mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  while(mjd0 <= planetmjd[endpoint]) {
+    // Test time-consistency with the planetary ephemerides throughout this timestep.
+    for(i=1;i<=hnum;i++) {
+      mjdnow = mjd0+htimes[i];
+      if(fabs(mjdnow-planetmjd[startpoint+stepct*hnum+i-1]) > STATEMJD_TIMETOL) {
+	cerr << "ERROR: time mismatch at point " << stepct*hnum+i << " " << mjdnow << " vs. " << planetmjd[startpoint+stepct*hnum+i-1] << "\n";
+	return(2);
+      }
+    }
+    // Calculate new value of F[1]
+    i=1;
+    tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i], tidemat);
+    for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+    // Re-roll phivalmat[i] into phival
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phival[pi][pj] = phivalmat[i][pi*6+pj];
+      }
+    }
+    // Update the sensitivity matrix with the new tidal parameters.
+    for(pi=3;pi<6;pi++) {
+      for(pj=0;pj<3;pj++) {
+	smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+      }
+    }
+    // Calculate the new derivative matrix
+    matXmat(smat, phival, phideriv);
+    // Unroll phimat and phideriv into phivalmat and phiderivmat
+    for(pi=0;pi<6;pi++) {
+      for(pj=0;pj<6;pj++) {
+	phivalmat[i][pi*6+pj] = phival[pi][pj];
+	phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+      }
+    }
+
+    // Integrate over the next timestep
+    if(stepct==2) {
+      // Obtain new value of alpha[1] by linear extrapolation from the old
+      for(k=0;k<3;k++) alpha[1][k] = 2.0l*oldalpha1[2][k] - oldalpha1[1][k];
+      for(pi=0;pi<36;pi++) phi_alpha[1][pi] = 2.0*old_phi_alpha1[2][pi] - old_phi_alpha1[1][pi];
+    } else if(stepct>2) {
+      // Obtain new value of alpha[1] by quadratic extrapolation from the old
+      for(k=0;k<3;k++) {
+	fita = (oldalpha1[2][k] - 2.0l*oldalpha1[1][k] + oldalpha1[0][k])/2.0l;
+	fitb = (-oldalpha1[2][k] + 4.0l*oldalpha1[1][k] - 3.0l*oldalpha1[0][k])/2.0l;
+	fitc = oldalpha1[0][k];
+	alpha[1][k] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+      for(pi=0;pi<36;pi++) {
+	fita = (old_phi_alpha1[2][pi] - 2.0l*old_phi_alpha1[1][pi] + old_phi_alpha1[0][pi])/2.0l;
+	fitb = (-old_phi_alpha1[2][pi] + 4.0l*old_phi_alpha1[1][pi] - 3.0l*old_phi_alpha1[0][pi])/2.0l;
+	fitc = old_phi_alpha1[0][pi];
+	phi_alpha[1][pi] = 9.0l*fita + 3.0l*fitb + fitc;
+      }
+    }
+
+    // Iteratively improve initial estimate of the alpha matrix,
+    // and the A matrix, positions, and velocities that depend on it.
+    for(itct=1;itct<=2;itct++) {
+      // First calculate the A matrix from the best current values of alpha
+      for(j=1;j<hnum;j++) {
+	for(k=0;k<3;k++) A[j][k] = 0.0l;
+	for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0;
+	for(i=j;i<hnum;i++) {
+	  for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	  for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+	}
+      }
+      // predict all the positions and velocities from the A values,
+      // using Everhart Equations 4 and 5
+      for(j=2;j<=hnum;j++) {
+	dt0 = tvec[j] - tvec[1]; // units of dt0 are timeunit
+	for(k=0;k<3;k++) targpos[j][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+	for(k=0;k<3;k++) targvel[j][k] = targvel[1][k] + F[1][k]*dt0;
+	for(pi=0;pi<36;pi++) phivalmat[j][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0; 
+	for(i=1;i<hnum;i++) {
+	  for(k=0;k<3;k++) targpos[j][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	  for(k=0;k<3;k++) targvel[j][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	  for(pi=0;pi<36;pi++) phivalmat[j][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	}
+      }
+      // Re-calculate the accelerations (that is, the vector F) at these revised positions
+      for(i=2;i<=hnum;i++) {
+	tidecalc01(planetnum, planetmasses, planet_statevecs[startpoint+stepct*hnum+i-1], targpos[i], F[i], tidemat);
+	for(k=0;k<3;k++) F[i][k] *= timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are now km/timeunit^2
+	// Re-roll phivalmat[i] into phival
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phival[pi][pj] = phivalmat[i][pi*6+pj];
+	  }
+	}
+	// Update the sensitivity matrix with the new tidal parameters.
+	for(pi=3;pi<6;pi++) {
+	  for(pj=0;pj<3;pj++) {
+	    smat[pi][pj] = tidemat[pi-3][pj] * timeunit*timeunit*SOLARDAY*SOLARDAY; // Units are 1/timeunit^2
+	  }
+	}
+	// Calculate the new derivative matrix
+	matXmat(smat, phival, phideriv);
+	// Unroll phimat and phideriv into phivalmat and phiderivmat
+	for(pi=0;pi<6;pi++) {
+	  for(pj=0;pj<6;pj++) {
+	    phivalmat[i][pi*6+pj] = phival[pi][pj];
+	    phiderivmat[i][pi*6+pj] = phideriv[pi][pj];
+	  }
+	}
+      }
+      // Re-calculate alpha based on the revised vector F
+      for(i=2;i<=hnum;i++) {
+	for(k=0;k<3;k++) alpha[i-1][k] = (F[i][k] - F[1][k])/tvec[i];
+	for(pi=0;pi<36;pi++) phi_alpha[i-1][pi] = (phiderivmat[i][pi] - phiderivmat[1][pi])/tvec[i];
+	for(j=2;j<i;j++) {
+	  for(k=0;k<3;k++) {
+	    alpha[i-1][k] -= alpha[j-1][k];
+	    alpha[i-1][k] /= tvec[i] - tvec[j];
+	  }
+	  for(pi=0;pi<36;pi++) {
+	    phi_alpha[i-1][pi] -= phi_alpha[j-1][pi];
+	    phi_alpha[i-1][pi] /= tvec[i] - tvec[j];
+	  }
+	}
+      }
+    }
+    // Done with iterations, alpha matrix should be very accurate now.
+    // Calculate a revised A matrix from final-iteration values of alpha
+    for(j=1;j<hnum;j++) {
+      for(k=0;k<3;k++) A[j][k] = 0.0l;
+      for(pi=0;pi<36;pi++) phi_A[j][pi] = 0.0l;
+      for(i=j;i<hnum;i++) {
+	for(k=0;k<3;k++) A[j][k] += c[i][j]*alpha[i][k];
+	for(pi=0;pi<36;pi++) phi_A[j][pi] += c[i][j]*phi_alpha[i][pi];
+      }
+    }
+    if(verbose>0) {
+      cout << "F matrix, stepct = " << stepct << ":\n";
+      for(j=1;j<=horder;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << F[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "alpha matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << alpha[j][k] << " ";
+	cout << "\n";
+      }
+      cout << "A matrix:\n";
+      for(j=1;j<hnum;j++) {
+	cout << j << " ";
+	for(k=0;k<3;k++) cout << A[j][k] << " ";
+	cout << "\n";
+      }
+    }
+  
+    // Load output position and velocity spanning the latest timestep
+    while(obsct<obsnum && obsMJD[obsct] <= mjd0+timestep) {
+      dt0 = (obsMJD[obsct] - mjd0)/timeunit;
+      for(k=0;k<3;k++) targ_statevecs[obsct][k] = targpos[1][k] + targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+      for(k=0;k<3;k++) targ_statevecs[obsct][3+k] = targvel[1][k] + F[1][k]*dt0;
+      for(pi=0;pi<36;pi++) vareq_mat[obsct][pi] = phivalmat[1][pi] + phiderivmat[1][pi]*dt0;
+      for(i=1;i<hnum;i++) {
+	for(k=0;k<3;k++) targ_statevecs[obsct][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+	for(k=0;k<3;k++) targ_statevecs[obsct][3+k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+	for(pi=0;pi<36;pi++) vareq_mat[obsct][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      }
+      // Convert the velocity from km/timeunit to km/sec
+      for(k=0;k<3;k++) targ_statevecs[obsct][3+k] /= timeunit*SOLARDAY;
+      for(pi=0;pi<3;pi++) {
+	for(pj=3;pj<6;pj++) {
+	  vareq_mat[obsct][pi*6+pj] *= timeunit*SOLARDAY; // Derivatives with velocity in the denominator
+	}
+      }
+      for(pi=3;pi<6;pi++) {
+	for(pj=0;pj<3;pj++) {
+	  vareq_mat[obsct][pi*6+pj] /= timeunit*SOLARDAY; // Derivatives with velocity in the numerator
+	}
+      }
+      obsct++;
+    }
+
+    // Calculate precise position and velocity at the end of this timestep, and store
+    // in targpos[1] and targvel[1], to set up for the next integration step.
+    dt0 = timestep/timeunit; // units of dt0 are timeunit
+    for(k=0;k<3;k++) targpos[1][k] += targvel[1][k]*dt0 + F[1][k]*dt0*dt0/2.0l;
+    for(k=0;k<3;k++) targvel[1][k] += F[1][k]*dt0;
+    for(pi=0;pi<36;pi++) phivalmat[1][pi] += phiderivmat[1][pi]*dt0;
+    for(i=1;i<hnum;i++) {
+      for(k=0;k<3;k++) targvel[1][k] += A[i][k] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+      for(k=0;k<3;k++) targpos[1][k] += A[i][k] * intpowD(dt0,i+2) / static_cast<double>(i+2) / static_cast<double>(i+1);
+      for(pi=0;pi<36;pi++) phivalmat[1][pi] += phi_A[i][pi] * intpowD(dt0,i+1) / static_cast<double>(i+1);
+    }
+  
+    // Cycle oldalpha1
+    for(k=0;k<3;k++) oldalpha1[0][k] = oldalpha1[1][k];
+    for(k=0;k<3;k++) oldalpha1[1][k] = oldalpha1[2][k];
+    for(k=0;k<3;k++) oldalpha1[2][k] = alpha[1][k];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[0][pi] = old_phi_alpha1[1][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[1][pi] = old_phi_alpha1[2][pi];
+    for(pi=0;pi<36;pi++) old_phi_alpha1[2][pi] = phi_alpha[1][pi];
+    
+    stepct++;
+    mjd0 = planetmjd[startpoint] + timestep * static_cast<double>(stepct);
+  }
+  return(0);
+}
+
+
+// obsint_vareq01: October 14, 2025:
+// Like integrate_vareq02(), but instead of evaluating
+// output every day, evaluates it only at specifing UTC times
+// provided in the vector obsMJD. Uses obsint_everhart_vareq01
+// as the central calculating engine.
+//
+// Description of ancestor program integrate_vareq02:
+// Using integrate_everhart_vareq02() as the central caculating engine,
+// integrate an orbit forward and/or backward in time, as needed, integrating
+// both the state vectors (position and velocity) and the variational equations.
+// In order to obtain a major increase in speed, requires input vectors
+// planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, and
+// planet_forward_statevecs to have already been interpolated to the exact, unequal sampling
+// intervals required for Everhart integration with the specified timestep
+// and hnum, where the backward vectors are in time-reversed order with
+// MJD and velocity sign-flipped. Files containing such vectors, in both backwards
+// and forwards directions, can be produced with the required sampling for
+// Everhart integration at a specific hnum and timestep using Horizons_resample.cpp.
+// Here, hnum is the number of small (unequal) timesteps
+// per big (equal) timestep, and the input argument timestep is the
+// length of the big timesteps. This input timestep is expected
+// to be in solar days, where 5 and 10 days are probably reasonable. 
+int obsint_vareq01(int planetnum, const vector <double> &planetmasses, const vector <double> &planet_backward_mjd, const vector <vector <double>> &planet_backward_statevecs, const vector <double> &planet_forward_mjd, const vector <vector <double>> &planet_forward_statevecs, const vector <double> &starting_statevec, double mjdstart, double mjdref, double mjdend, const vector <double> &obsMJD,  vector <vector <double>> &targ_statevecs, vector <vector <double>> &vareq_mat, double timestep, int hnum, const vector <double> &hspace, int verbose)
+{
+  long i,j,k,pi,pj;
+  i=j=k=pi=pj=0;
+  int ref_subct=0;
+  int status=0;
+  long obsnum = obsMJD.size();
+  long obsct=0;
+  long startpoint,endpoint,refpoint;
+  targ_statevecs={};
+  vareq_mat={};
+  
+  if(verbose>0) cout << "Inside obsint_vareq01()\n";
+
+  // Match mjdstart and mjdend to forward planet file.
+  startpoint = endpoint = refpoint = -99;
+  for(j=0;j<long(planet_forward_mjd.size());j++) {
+    if(fabs(planet_forward_mjd[j]-mjdstart) < STATEMJD_TIMETOL) startpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdref) < STATEMJD_TIMETOL) refpoint = j;
+    if(fabs(planet_forward_mjd[j]-mjdend) < STATEMJD_TIMETOL) endpoint = j;
+  }
+  if(startpoint<0 || refpoint<0 || endpoint<0) {
+    cerr << "ERROR: mjdstart " << mjdstart << " and/or mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the planet files\n";
+    return(1);
+  } else {
+    cout << "mjdstart " << mjdstart << " corresponds to timestep " << startpoint << " in the forward planet files\n";
+    cout << "mjdref " << mjdref << " corresponds to timestep " << refpoint << " in the forward planet files\n";
+    cout << "mjdend " << mjdend << " corresponds to timestep " << endpoint << " in the forward planet files\n";
+  }
+  
+  if(endpoint<startpoint) {
+    cerr << "ERROR: obsint_vareq01 finds end point (" << endpoint << ") before starting point (" << startpoint << ")\n";
+    return(1);
+  } else if(refpoint<startpoint) {
+    cerr << "ERROR: obsint_vareq01 finds reference point " << refpoint << " before starting point " << startpoint << "\n";
+    return(2);
+  } else if(refpoint>endpoint) {
+    cerr << "ERROR: obsint_vareq01 finds reference point " << refpoint << " after end point " << endpoint << "\n";
+    return(2);
+  }
+  
+  make_dmat(obsnum, 6, targ_statevecs);
+  make_dmat(obsnum, 36, vareq_mat);
+  
+  // Calculate the first point after the reference time in obsMJD
+  if(obsMJD[0] >= mjdref) {
+    // All of the observing times are after the reference time.
+    ref_subct=0;
+  } else if(obsMJD[obsnum-1] <= mjdref) {
+    // All of the observing times are before the reference time.
+    ref_subct = obsnum-1;
+  } else {
+    ref_subct=0;
+    while(obsMJD[ref_subct] < mjdref) ref_subct++;
+  }
+  // We prefer forward integration to backward integration, so the above
+  // logic is designed such that if one of the observing times
+  // falls directly on mjdref, we will set ref_subct to the index of
+  // that time. Hence, obsMJD[ref_subct] == mjdref
+  // is possible, and we set the forward integration to calculate that
+  // point, while the latest point calculated by the backward integration
+  // is always ref_subct-1 and must always fall before mjdref.
+  
+  if(ref_subct < obsnum-1) {
+    // Perform forward integration
+    vector <double> forwardMJD;
+    for(obsct=ref_subct; obsct<obsnum;obsct++) forwardMJD.push_back(obsMJD[obsct]);
+    long forwardnum = forwardMJD.size();
+    vector <vector <double>> forward_statevecs;
+    vector <vector <double>> forward_vareq;
+    
+    cout << "Launching obsint_everhart_vareq01 to perform forward integration\n";
+    status = obsint_everhart_vareq01(planetnum, planet_forward_mjd, planetmasses, planet_forward_statevecs, starting_statevec, refpoint, endpoint, forwardMJD,  forward_statevecs, forward_vareq, timestep, hnum, hspace, verbose);
+    cout << "Foward integration complete with output vector lengths " << forwardMJD.size() << " and " << forward_statevecs.size() << "\n";
+    if(status!=0) {
+      cerr << "ERROR: obsint_everhart_vareq01() returned error status " << status << "\n";
+      return(status);
+    }
+    for(i=0;i<forwardnum;i++) {
+      if(verbose>0) cout << "i, forwardnum, ref_subct+i, obsnum: " << i << " " << forwardnum<< " " << ref_subct+i << " " << obsnum << " " << "\n";
+      targ_statevecs[ref_subct+i] = forward_statevecs[i];
+      vareq_mat[ref_subct+i] = forward_vareq[i];
+    }
+  }
+  if(ref_subct > 0) {
+    // Perform a backward integration.
+    // Match mjdstart and mjdref to backward planet file.
+    long backrefpoint = -99;
+    long backstartpoint = -99;
+    for(j=0;j<long(planet_backward_mjd.size());j++) {
+      if(fabs(planet_backward_mjd[j]+mjdstart) < STATEMJD_TIMETOL) backstartpoint = j;
+      if(fabs(planet_backward_mjd[j]+mjdref) < STATEMJD_TIMETOL) backrefpoint = j;
+    }
+    if(backstartpoint<0 || backrefpoint<0) {
+      cerr << "ERROR: mjdref " << mjdref << " and/or mjdend " << mjdend << " could not be matched\nto any timestep in the backward planet files\n";
+      return(1);
+    } else {
+      cout << "mjdstart " << mjdstart << " corresponds to timestep " << backstartpoint << " in the backward planet files\n";
+      cout << "mjdref " << mjdref << " corresponds to timestep " << backrefpoint << " in the backward planet files\n";
+      vector <vector <double>> backward_statevecs;
+      vector <vector <double>> backward_vareq;
+      vector <double> backward_startvec;
+      vector <double> backwardMJD;
+      for(obsct=ref_subct-1; obsct>=0; obsct--) backwardMJD.push_back(-obsMJD[obsct]);
+
+      // Copy the starting state vector into backward_startvec
+      backward_startvec = starting_statevec;
+      // Sign-flip the velocity
+      for(k=3;k<6;k++) backward_startvec[k] *= -1.0l;
+      cout << "Launching obsint_everhart_vareq01() to perform backward integration\n";
+      status = obsint_everhart_vareq01(planetnum, planet_backward_mjd, planetmasses, planet_backward_statevecs, backward_startvec, backrefpoint, backstartpoint, backwardMJD,  backward_statevecs, backward_vareq, timestep, hnum, hspace, verbose);
+
+      cout << "Backward integration complete with output vector lengths " << backwardMJD.size() << " and " << backward_statevecs.size() << "\n";
+      if(status!=0) {
+	cerr << "ERROR: obsint_everhart_vareq01() returned error status " << status << "\n";
+	return(status);
+      }
+      for(i=0;i<ref_subct;i++) {
+	if(verbose>0) cout << "i, ref_subct-i, obsnum: " << i << " " << ref_subct-1-i << " " << obsnum << " " << "\n";
+	// Position is copied verbatim
+	for(k=0;k<3;k++) targ_statevecs[ref_subct-1-i][k] = backward_statevecs[i][k];
+	// Velocity requires a sign-flip
+	for(k=3;k<6;k++) targ_statevecs[ref_subct-1-i][k] = -backward_statevecs[i][k];
+	vareq_mat[ref_subct-1-i] = backward_vareq[i];
+	// Terms with velocity in only the numerator or only the denominator require a sign-flip:
+	for(pi=0;pi<3;pi++) {
+	  for(pj=3;pj<6;pj++) {
+	    vareq_mat[ref_subct-1-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the denominator
+	  }
+	}
+	for(pi=3;pi<6;pi++) {
+	  for(pj=0;pj<3;pj++) {
+	    vareq_mat[ref_subct-1-i][pi*6+pj] *= -1.0; // Derivatives with velocity in the numerator
+	  }
+	}
+      }
+    }
+  }
+  return(0);
+}
+
+#undef DEBUG
+#undef TIMEDOWNSCALE
