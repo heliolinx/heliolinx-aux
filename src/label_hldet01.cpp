@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
   for(labct=0;labct<labnum;labct++) {
     querypoint = point4d_index((labeling_dets[labct].MJD-mjdref)*timescale/DEGPRAD,cos(labeling_dets[labct].RA/DEGPRAD)*cos(labeling_dets[labct].Dec/DEGPRAD),sin(labeling_dets[labct].RA/DEGPRAD)*cos(labeling_dets[labct].Dec/DEGPRAD), sin(labeling_dets[labct].Dec/DEGPRAD), labct);
     nearest = kdnearest_4d_index(kdvec, querypoint);
-    dist = ASECPRAD*point4d_index_dist2(querypoint, kdvec[nearest].point);
+    dist = ASECPRAD*sqrt(point4d_index_dist2(querypoint, kdvec[nearest].point));
     if(labct%1000==0) {
       cout << "Running query for labeling point " << labct << "\n";
       cout << querypoint.t << " " << querypoint.x << " " << querypoint.y << " " << querypoint.z << "\n";
