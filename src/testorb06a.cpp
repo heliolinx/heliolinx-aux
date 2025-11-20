@@ -100,6 +100,8 @@ int main(int argc, char *argv[])
   double astromrms=0.0;
   vector <double> rmsvec;
   long testct;
+  double a,e,incl;
+  a=e=incl=0.0;
 
   if(argc<18) {
     show_usage();
@@ -635,6 +637,10 @@ int main(int argc, char *argv[])
     for(k=0;k<6;k++) starting_statevec[k] += Xcor[k];
   }
 
+  statevec2kep_easy(GMSUN_KM3_SEC2,starting_statevec, a, e, incl);
+  cout << "Final state vector corresponds to a Keplerian orbit with a = " << a/AU_KM << " AU, e = " << e << " and incl = " << incl << " degrees\n";
+  cout << fixed << setprecision(6) << "Final RMS is " << astromrms*3600.0 << " arcsec\n";
+  
   // Write final best-fit to output file
   outstream1 << "MJD RA Dec RA_resid Dec_resid total_resid\n";
   cout << "MJD RA Dec RA_resid Dec_resid total_resid\n";
@@ -643,6 +649,8 @@ int main(int argc, char *argv[])
     cout << fixed << setprecision(10) << resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << resid_B[2*obsct+1]*3600.0 << " " << sqrt(intpowD(resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD),2) + intpowD(resid_B[2*obsct+1],2))*3600.0 << "\n";
     outstream1 << fixed << setprecision(10) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " ";
     outstream1 << fixed << setprecision(10) << resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << resid_B[2*obsct+1]*3600.0 << " " << sqrt(intpowD(resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD),2) + intpowD(resid_B[2*obsct+1],2))*3600.0 << "\n";
+    outstream1 << "Final state vector corresponds to a Keplerian orbit with a = " << a/AU_KM << " AU, e = " << e << " and incl = " << incl << " degrees\n";
+    outstream1 << fixed << setprecision(6) << "Final RMS is " << astromrms*3600.0 << " arcsec\n";
   }
   outstream1.close();
   

@@ -603,7 +603,7 @@ int main(int argc, char *argv[])
   cout << starting_statevec[0] << " " << starting_statevec[1] << " " << starting_statevec[2] << " " << starting_statevec[3] << " " << starting_statevec[4] << " " << starting_statevec[5] << "\n";
 
   out_statevec={};
-  status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, starting_statevec, mjdref, obsMJD, observer_statevecs, obsRA, obsDec, sigastrom, fitRA, fitDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, verbose);
+  status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, starting_statevec, mjdref, obsMJD, observer_statevecs, obsRA, obsDec, sigastrom, fitRA, fitDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, astromrms, chisq, verbose);
   if(status!=0) {
     cerr << "ERROR: evertrace01 returned error status " << status << "\n";
     return(status);

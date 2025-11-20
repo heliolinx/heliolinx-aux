@@ -11,7 +11,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: mpc80_to_MJD -infile mpc_file -outfile outfile\n";
+  cerr << "Usage: mpc80_to_hldet -infile mpc_file -outfile outfile\n";
 }
 
 int main(int argc, char *argv[])

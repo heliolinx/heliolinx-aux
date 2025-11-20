@@ -546,7 +546,7 @@ int main(int argc, char *argv[])
     obsTDB.push_back(detvec[obsct].MJD + TTDELTAT/SOLARDAY);
     obsRA.push_back(detvec[obsct].RA);
     obsDec.push_back(detvec[obsct].Dec);
-    sigastrom.push_back(1.0);
+    sigastrom.push_back(detvec[obsct].sig_across);
   }
   // Check that MJD values are time-ordered.
   for(obsct=1;obsct<obsnum;obsct++) {
