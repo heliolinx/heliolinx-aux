@@ -103,6 +103,7 @@ int main(int argc, char *argv[])
   vector <hldet> outdetvec3 = {};
   int hnum = HNUM;
   int verbose = 0;
+  int verbose2 = 0;
   vector <double> hspace;
   string stest;
   string configfile;
@@ -711,7 +712,7 @@ int main(int argc, char *argv[])
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--verbose" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--VERB") {
       if(i+1 < argc) {
 	//There is still something to read;
-	verbose=stoi(argv[++i]);
+	verbose2=stoi(argv[++i]);
 	i++;
       }
       else {
@@ -777,6 +778,9 @@ int main(int argc, char *argv[])
     hspace.push_back(h8_7);
     hspace.push_back(h8_8);
   }
+
+  if(verbose2<=0) verbose=0;
+  else verbose = verbose2-1;
   
   // Read observatory code file
   status = read_obscode_file2(obscodefile, observatory_list, verbose);
@@ -1200,14 +1204,15 @@ int main(int argc, char *argv[])
       if(matchinput==0) {
 	// We matched a tracklet that was not included in the input linkage.
 	// Report it to the user, and record it for inclusion in the orbit fit
-	cout << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
-	cout << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
-	outstream1 << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
-	outstream1 << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
+	if(verbose2>0) cout << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
+	if(verbose2>0) cout << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
+	if(verbose2>0) outstream1 << fixed << setprecision(4) << "Match found on tracklet line " << pairct << " for representative ephemeris " << repct << " : " << trkRA[pairct] << " " << trkDec[pairct] << " " << trkRAvel[pairct] << " " << trkDecvel[pairct] << ":\n";
+	if(verbose2>0) outstream1 << fixed << setprecision(4) << detvec[trkvec[0]].idstring << " dist = " << dist << " degrees, vdist = " << vdist << " deg/day :\n" << ephMJD[i] << " " << ephRAmat[repct][i] << " " << ephDecmat[repct][i] << " " << ephRAvelmat[repct][i] << " " << ephDecvelmat[repct][i] << "\n";
 	matching_trkind.push_back(pairct);
       }
     }
     }
+    cout << "Finished with ephemeris point " << i << ", " << matching_trkind.size() << " potentially matching tracklets so far " << "\n";
   }
 
   cout << "Prior to de-duplication, we have " << matching_trkind.size() << " total matching tracklets\n";
@@ -1313,9 +1318,9 @@ int main(int argc, char *argv[])
       return(status);
     }
     if(trkvec_temp.size()>0) {
-      cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";  
+      // cout << "Attempting orbit fit for potential match number " << matchct+1 << ", with " << trkvec.size() << " points\n";  
       // Perform orbit-fit to augmented input data
-      cout << "Launching evertrace01 for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points\n";
+      cout << "Launching evertrace01 for match " << matchct+1  << " of " << matching_trkind.size() << " with " << obsMJD2.size() << " data points including " << trkvec.size() << " from the new tracklet\n";
       outstream1 << "Launching evertrace01 for match " << matchct+1  << " = " << detvec[trkvec[0]].idstring << " of " << matching_trkind.size() << " at MJD " << detvec[trkvec[0]].MJD << ", with " << trkvec.size() << " tracklet points and hence " << obsMJD2.size() << " total data points\n";
       //arctrace03(polyorder,planetnum,Earth_mjd,planetmasses,planetpos,Sunpos,Sunvel,observer_heliopos2,obsMJD2,obsRA2,obsDec2,sigastrom2,kepspan,minchichange, bestRA, bestDec, bestresid, outpos, outvel, &bestchi, &astromRMS, &refpoint, verbose);
       status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD2, observer_statevecs2, obsRA2, obsDec2, sigastrom2, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);

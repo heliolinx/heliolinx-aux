@@ -587,7 +587,7 @@ int main(int argc, char *argv[])
       // Light-travel-time corrected version of coordinates relative to the observer
       for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
       // Project onto the celestial sphere.
-      statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv);
+      statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
       fitRA.push_back(RA);
       fitDec.push_back(Dec);
     }
@@ -612,7 +612,7 @@ int main(int argc, char *argv[])
       // Light-travel-time corrected version of coordinates relative to the observer
       for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
       // Project onto the celestial sphere.
-      statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv);
+      statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
       fitRA.push_back(RA);
       fitDec.push_back(Dec);
     }
@@ -645,7 +645,7 @@ int main(int argc, char *argv[])
     for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
     // Project onto the celestial sphere.
     if(verbose>0) cout << "Input relative state vector: " << relpos[0] << " " << relpos[1] << " " << relpos[2] << "\n";
-    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv);
+    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
     cout  << fixed << setprecision(6) << "Input MJD " << obsMJD[i] << ": " << RA << " "  << Dec << "\n";
     outstream1 << i << " " << obsMJD[i] << " " << RA << " " << Dec << "\n";
     fitRA.push_back(RA);
@@ -659,17 +659,17 @@ int main(int argc, char *argv[])
     vector <double> testpos = relpos;
     for(k=0;k<3;k++) RA_deriv[k] = Dec_deriv[k] = 0.0;
     testpos[0]+=delta_pos;
-    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv);
+    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv, verbose);
     RA_deriv[0] = (newRA-RA)/delta_pos;
     Dec_deriv[0] = (newDec-Dec)/delta_pos;
     testpos = relpos;
     testpos[1]+=delta_pos;
-    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv);
+    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv, verbose);
     RA_deriv[1] = (newRA-RA)/delta_pos;
     Dec_deriv[1] = (newDec-Dec)/delta_pos;
     testpos = relpos;
     testpos[2]+=delta_pos;
-    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv);
+    statevec_to_celederiv(testpos, newRA, newDec, RA_deriv, Dec_deriv, verbose);
     RA_deriv[2] = (newRA-RA)/delta_pos;
     Dec_deriv[2] = (newDec-Dec)/delta_pos;
     cout << scientific << "Numerical RA derivatives: " << RA_deriv[0] << " " << RA_deriv[1] << " " << RA_deriv[2] << "\n";
@@ -793,7 +793,7 @@ int main(int argc, char *argv[])
     // Light-travel-time corrected version of coordinates relative to the observer
     for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
     // Project onto the celestial sphere.
-    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv);
+    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
     fitRA.push_back(RA);
     fitDec.push_back(Dec);
     RA_deriv_mat.push_back(RA_deriv);

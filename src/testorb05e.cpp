@@ -23,7 +23,7 @@
 // uncertainty must be in arcseconds.
 static void show_usage()
 {
-  cerr << "Usage: testorb06e -cfg configfile -observations obsfile -obscode obscodefile -mjdref mjdref -statevec x y z vx vy vz -testtimes testtimes -outfile outfile -verbose verbosity\n";
+  cerr << "Usage: testorb05e -cfg configfile -observations obsfile -obscode obscodefile -mjdref mjdref -statevec x y z vx vy vz -testtimes testtimes -outfile outfile -verbose verbosity\n";
 }
 
 int main(int argc, char *argv[])
@@ -97,11 +97,7 @@ int main(int argc, char *argv[])
   vector <double> resid_B;
   vector <double> AtransposeB;
   vector <double> Xcor;
-  double astromrms=0.0;
-  vector <double> rmsvec;
-  long testct;
-  double a,e,incl;
-  a=e=incl=0.0;
+  
 
   if(argc<18) {
     show_usage();
@@ -565,94 +561,219 @@ int main(int argc, char *argv[])
   outstream1.open(outfile);
   outstream1.precision(17);  
   outstream1 << "MJD RA Dec\n";
-
   cout << "Launching obsint_vareq01()\n";
-  rmsvec = {};
-  for(testct=0;testct<testtimes;testct++) {
+
+  for(i=0;i<testtimes;i++) {
     cout << "Speed-test run " << i <<"\n";
     obsint_vareq01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, starting_statevec, mjdstart, mjdref, mjdend, obsTDB, targ_statevecs, vareq_mat, timestep, hnum, hspace, verbose);
-
-    fitRA = fitDec = {};
-    RA_deriv_mat = Dec_deriv_mat = {};
-    for(i=0; i<obsnum; i++) {
-      // Initial approximation of the coordinates relative to the observer
-      vector <double> relpos;
-      make_dvec(3,relpos);
-      for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - observer_statevecs[i][k];
-      // Initial approximation of the observer-target distance
-      ldval = nvecabs(relpos);
-      // Convert to meters and divide by the speed of light to get the light travel time.
-      light_travel_time = ldval*1000.0/CLIGHT;
-      // Light-travel-time corrected version of coordinates relative to the observer
-      for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
-      // Project onto the celestial sphere.
-      statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
-      fitRA.push_back(RA);
-      fitDec.push_back(Dec);
-      RA_deriv_mat.push_back(RA_deriv);
-      Dec_deriv_mat.push_back(Dec_deriv);
-    }
-    // Construct vector of residuals, O-C, and calculate astrometric RMS
-    make_dvec(2*obsnum,resid_B);
-    astromrms = 0.0;
-    for(obsct=0;obsct<obsnum;obsct++) {
-      resid_B[2*obsct] = obsRA[obsct] - fitRA[obsct];
-      resid_B[2*obsct+1] = obsDec[obsct] - fitDec[obsct];
-      astromrms += intpowD(resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD),2) + intpowD(resid_B[2*obsct+1],2);
-      cout << scientific << "Residvec " << obsct << " " << resid_B[2*obsct] << " " << resid_B[2*obsct+1] << "\n";
-    }
-    astromrms/=(double)obsnum;
-    astromrms = sqrt(astromrms);
-    rmsvec.push_back(astromrms);
-    outstream1 << scientific << "Iteration " << testct << " astrometric RMS = " << astromrms*3600.0 << " arcsec\n";
-
-    // Calculate the matrix A. First index is rows (2*obsnum), second is columns (6)
-    make_dmat(2*obsnum,6,Aobs_mat);
-    for(obsct=0;obsct<obsnum;obsct++) {
-      for(i=0;i<6;i++) {
-	// Derivative of RA[obsct] w.r.t. each of the initial state vectors
-	Aobs_mat[2*obsct][i] = 0.0l;
-	for(k=0;k<3;k++) Aobs_mat[2*obsct][i] += RA_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
-	// Derivative of Dec[obsct] w.r.t. each of the initial state vectors
-	Aobs_mat[2*obsct+1][i] = 0.0l;
-	for(k=0;k<3;k++) Aobs_mat[2*obsct+1][i] += Dec_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
-      }
-    }
-    Aobs_transpose = {};
-    matrix_transpose(Aobs_mat, Aobs_transpose);
-    Qmat = {};
-    matXmat(Aobs_transpose, Aobs_mat, Qmat);
-    Qinv = {};
-    status = invertmatrix01(Qmat, 6, Qinv, verbose);
-    AtransposeB = {};
-    matXvec(Aobs_transpose, resid_B, AtransposeB);
-    Xcor = {};
-    matXvec(Qinv, AtransposeB, Xcor);
-    cout << "Xcor";
-    for(k=0;k<3;k++) cout << " " << Xcor[k];
-    for(k=3;k<6;k++) cout << " " << Xcor[k];
-    cout << "\n";
-
-    // Apply new correction
-    for(k=0;k<6;k++) starting_statevec[k] += Xcor[k];
   }
-
-  statevec2kep_easy(GMSUN_KM3_SEC2,starting_statevec, a, e, incl);
-  cout << "Final state vector corresponds to a Keplerian orbit with a = " << a/AU_KM << " AU, e = " << e << " and incl = " << incl << " degrees\n";
-  cout << fixed << setprecision(6) << "Final RMS is " << astromrms*3600.0 << " arcsec\n";
   
-  // Write final best-fit to output file
-  outstream1 << "MJD RA Dec RA_resid Dec_resid total_resid\n";
-  cout << "MJD RA Dec RA_resid Dec_resid total_resid\n";
+  for(i=0; i<obsnum; i++) {
+   cout << i << " " << obsMJD[i] << " " << targ_statevecs[i][0] << " " << targ_statevecs[i][1] << " " << targ_statevecs[i][2] << " " << targ_statevecs[i][3] << " " << targ_statevecs[i][4] << " " << targ_statevecs[i][5] << "\n";
+   }
+  fitRA = fitDec = {};
+  RA_deriv_mat = Dec_deriv_mat = {};
+  for(i=0; i<obsnum; i++) {
+    // Initial approximation of the coordinates relative to the observer
+    vector <double> relpos;
+    make_dvec(3,relpos);
+    for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - observer_statevecs[i][k];
+    // Initial approximation of the observer-target distance
+    ldval = nvecabs(relpos);
+    // Convert to meters and divide by the speed of light to get the light travel time.
+    light_travel_time = ldval*1000.0/CLIGHT;
+    // Light-travel-time corrected version of coordinates relative to the observer
+    for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
+    // Project onto the celestial sphere.
+    if(verbose>0) cout << "Input relative state vector: " << relpos[0] << " " << relpos[1] << " " << relpos[2] << "\n";
+    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
+    cout  << fixed << setprecision(6) << "Input MJD " << obsMJD[i] << ": " << RA << " "  << Dec << "\n";
+    outstream1 << i << " " << obsMJD[i] << " " << RA << " " << Dec << "\n";
+    cout << scientific << "Analytical RA derivatives: " << RA_deriv[0] << " " << RA_deriv[1] << " " << RA_deriv[2] << "\n";
+    cout << scientific << "Analytical Dec derivatives: " << Dec_deriv[0] << " " << Dec_deriv[1] << " " << Dec_deriv[2] << "\n";
+    fitRA.push_back(RA);
+    fitDec.push_back(Dec);
+    RA_deriv_mat.push_back(RA_deriv);
+    Dec_deriv_mat.push_back(Dec_deriv);
+  }
+  // Construct vector of residuals, O-C
+  make_dvec(2*obsnum,resid_B);
   for(obsct=0;obsct<obsnum;obsct++) {
-    cout << fixed << setprecision(10) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " ";
-    cout << fixed << setprecision(10) << resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << resid_B[2*obsct+1]*3600.0 << " " << sqrt(intpowD(resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD),2) + intpowD(resid_B[2*obsct+1],2))*3600.0 << "\n";
-    outstream1 << fixed << setprecision(10) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " ";
-    outstream1 << fixed << setprecision(10) << resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << resid_B[2*obsct+1]*3600.0 << " " << sqrt(intpowD(resid_B[2*obsct]*cos(obsDec[obsct]/DEGPRAD),2) + intpowD(resid_B[2*obsct+1],2))*3600.0 << "\n";
-    outstream1 << "Final state vector corresponds to a Keplerian orbit with a = " << a/AU_KM << " AU, e = " << e << " and incl = " << incl << " degrees\n";
-    outstream1 << fixed << setprecision(6) << "Final RMS is " << astromrms*3600.0 << " arcsec\n";
+    resid_B[2*obsct] = obsRA[obsct] - fitRA[obsct];
+    resid_B[2*obsct+1] = obsDec[obsct] - fitDec[obsct];
+    cout << scientific << "Residvec " << obsct << " " << resid_B[2*obsct] << " " << resid_B[2*obsct+1] << "\n";
   }
-  outstream1.close();
+  // Calculate the matrix A. First index is rows (2*obsnum), second is columns (6)
+  make_dmat(2*obsnum,6,Aobs_mat);
+  for(obsct=0;obsct<obsnum;obsct++) {
+    // Position derivatives will be scaled from km to AU
+    for(i=0;i<3;i++) {
+      // Derivative of RA[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct][i] += RA_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+      // Derivative of Dec[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct+1][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct+1][i] += Dec_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+    }
+    // Velocity derivatives will not be scaled, left in units of km/sec
+    for(i=3;i<6;i++) {
+      // Derivative of RA[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct][i] += RA_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+      // Derivative of Dec[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct+1][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct+1][i] += Dec_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+    }
+  }
+
+  cout << "Aobs_mat: \n";
+  for(i=0;i<2*obsnum;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Aobs_mat[i][j];
+    cout << "\n";
+  }
+
+  Aobs_transpose = {};
+  matrix_transpose(Aobs_mat, Aobs_transpose);
+
+  cout << "Aobs_transpose: \n";
+  for(j=0;j<6;j++) {
+    for(i=0;i<2*obsnum;i++) cout << scientific << " " << Aobs_transpose[j][i];
+    cout << "\n";
+  }
+ 
+  Qmat = {};
+  matXmat(Aobs_transpose, Aobs_mat, Qmat);
   
+  cout << "Qmat: \n";
+  for(i=0;i<6;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Qmat[i][j];
+    cout << "\n";
+  }
+  
+  Qinv = {};
+  status = invertmatrix01(Qmat, 6, Qinv, verbose);
+  cout << "Qinv: \n";
+  for(i=0;i<6;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Qinv[i][j];
+    cout << "\n";
+  }
+
+  AtransposeB = {};
+  matXvec(Aobs_transpose, resid_B, AtransposeB);
+  cout << "AtransposeB:\n";
+  for(i=0;i<6;i++) cout << scientific << AtransposeB[i] << " ";
+  cout << "\n";
+  
+  Xcor = {};
+  matXvec(Qinv, AtransposeB, Xcor);
+  cout << "Xcor";
+  for(k=0;k<3;k++) cout << " " << Xcor[k];
+  for(k=3;k<6;k++) cout << " " << Xcor[k];
+  cout << "\n";
+  outstream1.close();
+
+  // Squiggle
+  for(k=0;k<6;k++) starting_statevec[k] -= Xcor[k];
+  
+  obsint_vareq01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, starting_statevec, mjdstart, mjdref, mjdend, obsTDB, targ_statevecs, vareq_mat, timestep, hnum, hspace, verbose);
+  fitRA = fitDec = {};
+  RA_deriv_mat = Dec_deriv_mat = {};
+  for(i=0; i<obsnum; i++) {
+    // Initial approximation of the coordinates relative to the observer
+    vector <double> relpos;
+    make_dvec(3,relpos);
+    for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - observer_statevecs[i][k];
+    // Initial approximation of the observer-target distance
+    ldval = nvecabs(relpos);
+    // Convert to meters and divide by the speed of light to get the light travel time.
+    light_travel_time = ldval*1000.0/CLIGHT;
+    // Light-travel-time corrected version of coordinates relative to the observer
+    for(k=0;k<3;k++) relpos[k] = targ_statevecs[i][k] - light_travel_time*targ_statevecs[i][3+k] - observer_statevecs[i][k];
+    // Project onto the celestial sphere.
+    statevec_to_celederiv(relpos, RA, Dec, RA_deriv, Dec_deriv, verbose);
+    fitRA.push_back(RA);
+    fitDec.push_back(Dec);
+    RA_deriv_mat.push_back(RA_deriv);
+    Dec_deriv_mat.push_back(Dec_deriv);
+  }
+  // Construct vector of residuals, O-C
+  make_dvec(2*obsnum,resid_B);
+  for(obsct=0;obsct<obsnum;obsct++) {
+    resid_B[2*obsct] = obsRA[obsct] - fitRA[obsct];
+    resid_B[2*obsct+1] = obsDec[obsct] - fitDec[obsct];
+    cout << scientific << "Residvec " << obsct << " " << resid_B[2*obsct] << " " << resid_B[2*obsct+1] << "\n";
+  }
+  // Calculate the matrix A. First index is rows (2*obsnum), second is columns (6)
+  make_dmat(2*obsnum,6,Aobs_mat);
+  for(obsct=0;obsct<obsnum;obsct++) {
+    // Position derivatives will be scaled from km to AU
+    for(i=0;i<3;i++) {
+      // Derivative of RA[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct][i] += RA_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+      // Derivative of Dec[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct+1][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct+1][i] += Dec_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+    }
+    // Velocity derivatives will not be scaled, left in units of km/sec
+    for(i=3;i<6;i++) {
+      // Derivative of RA[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct][i] += RA_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+      // Derivative of Dec[obsct] w.r.t. each of the initial state vectors
+      Aobs_mat[2*obsct+1][i] = 0.0l;
+      for(k=0;k<3;k++) Aobs_mat[2*obsct+1][i] += Dec_deriv_mat[obsct][k] * vareq_mat[obsct][k*6+i];
+    }
+  }
+
+  cout << "Aobs_mat: \n";
+  for(i=0;i<2*obsnum;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Aobs_mat[i][j];
+    cout << "\n";
+  }
+
+  Aobs_transpose = {};
+  matrix_transpose(Aobs_mat, Aobs_transpose);
+
+  cout << "Aobs_transpose: \n";
+  for(j=0;j<6;j++) {
+    for(i=0;i<2*obsnum;i++) cout << scientific << " " << Aobs_transpose[j][i];
+    cout << "\n";
+  }
+ 
+  Qmat = {};
+  matXmat(Aobs_transpose, Aobs_mat, Qmat);
+  
+  cout << "Qmat: \n";
+  for(i=0;i<6;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Qmat[i][j];
+    cout << "\n";
+  }
+  
+  Qinv = {};
+  status = invertmatrix01(Qmat, 6, Qinv, verbose);
+  cout << "Qinv: \n";
+  for(i=0;i<6;i++) {
+    for(j=0;j<6;j++) cout << scientific << " " << Qinv[i][j];
+    cout << "\n";
+  }
+
+  AtransposeB = {};
+  matXvec(Aobs_transpose, resid_B, AtransposeB);
+  cout << "AtransposeB:\n";
+  for(i=0;i<6;i++) cout << scientific << AtransposeB[i] << " ";
+  cout << "\n";
+  
+  Xcor = {};
+  matXvec(Qinv, AtransposeB, Xcor);
+  cout << "Xcor";
+  for(k=0;k<3;k++) cout << " " << Xcor[k];
+  for(k=3;k<6;k++) cout << " " << Xcor[k];
+  cout << "\n";
+  outstream1.close();
+
+
+  
+   
   return(0);
 }

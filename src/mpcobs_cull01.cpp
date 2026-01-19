@@ -9,7 +9,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: mpcobs_match -mpcfile mpc_file -mjdrange MJDstart MJDend -mpcout mpc_output\n";
+  cerr << "Usage: mpcobs_cull01 -mpcfile mpc_file -mjdrange MJDstart MJDend -mpcout mpc_output\n";
 }
 
 int main(int argc, char *argv[])

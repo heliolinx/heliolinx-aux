@@ -6,7 +6,7 @@
 #include "cmath"
 static void show_usage()
 {
-  cerr << "Usage: hldet2mpc.cpp hldet_file mpcfile\n";
+  cerr << "Usage: hldet2mpc hldet_file mpcfile\n";
 }
 
 int main(int argc, char *argv[])
