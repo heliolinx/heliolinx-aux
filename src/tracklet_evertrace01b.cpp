@@ -1326,6 +1326,15 @@ int main(int argc, char *argv[])
       status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD2, observer_statevecs2, obsRA2, obsDec2, sigastrom2, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
       if(status!=0) {
 	cerr << "WARNING: evertrace01 returned error status " << status << " when fitting tracklet " << matchct << "\n";
+	cout << "Input MJD and state vectors: " << master_mjd << " " << master_statevec[0] << " " << master_statevec[1] << " " << master_statevec[2] << " " << master_statevec[3] << " " << master_statevec[4] << " " << master_statevec[5] << "\n";
+	cout << "Input tracklet:\n";
+	for(i=0;i<long(trkvec.size());i++) {
+	  cout << image_log[detvec[trkvec[i]].image].MJD << " " << detvec[trkvec[i]].RA << " " << detvec[trkvec[i]].Dec << " " << detvec[trkvec[i]].mag << " " << detvec[trkvec[i]].sig_across << " " << detvec[trkvec[i]].sig_along << " " << detvec[trkvec[i]].band << " " << detvec[trkvec[i]].obscode << "\n";
+	}
+	cout << "Input observation vectors:\n";
+	for(i=0;i<long(obsMJD2.size());i++) {
+	  cout << obsMJD2[i] << " " << obsRA2[i] << " " << obsDec2[i] << " " << sigastrom2[i] << " " << observer_statevecs2[i][0] << " " << observer_statevecs2[i][1] << " " << observer_statevecs2[i][2] << " " << observer_statevecs2[i][3] << " " << observer_statevecs2[i][4] << " " << observer_statevecs2[i][5] << "\n";
+	}
 	continue;
       }
       // Calculate residuals from best-fit
