@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
   string imfile;
   string Earthfile,Sunfile,planetfile;
   string spaceobsfile;
-  string outfile = "outjunk01a.txt";
+  string outfile = "";
   string repfile = "repjunk01a.txt";
   double mjdref = 0.0L;
   int configread=0;
@@ -461,7 +461,8 @@ int main(int argc, char *argv[])
   cout << "input observation file " << obsfile << "\n";
   cout << "maxnum = " << maxnum << "\n";
   cout << "repnum = " << repnum << "\n";
-  cout << "output file " << outfile << "\n";
+  if(outfile.size()>0) cout << "output file " << outfile << "\n";
+  else cout << "No output file name has been specified, so none will be written\n";
   
   // Initialize random number generator
   seed_seq seed (seedstring.begin(),seedstring.end());
@@ -614,7 +615,7 @@ int main(int argc, char *argv[])
   }
   cout << "Initial chi-square value is " << chisq << "\n";
 
-  outstream1.open(outfile);
+  if(outfile.size()>0) outstream1.open(outfile);
   changepar=0;
   for(i=0;i<6;i++) normvec[i] = keepvec[i] = 0.0;
   resetct=covarct=0;
@@ -640,7 +641,7 @@ int main(int argc, char *argv[])
       accepted_all.push_back(tempstate);
       statechi.push_back(newchi);
       covarct++;
-      outstream1 << fixed << setprecision(10) << mjdref << " " << fixed << setprecision(3) << tempstate[0] << " " << tempstate[1] << " " << tempstate[2] << " "  << fixed << setprecision(10) << tempstate[3]/timescale << " " << tempstate[4]/timescale << " " << tempstate[5]/timescale << " " << newchi << "\n";
+      if(outfile.size()>0) outstream1 << fixed << setprecision(10) << mjdref << " " << fixed << setprecision(3) << tempstate[0] << " " << tempstate[1] << " " << tempstate[2] << " "  << fixed << setprecision(10) << tempstate[3]/timescale << " " << tempstate[4]/timescale << " " << tempstate[5]/timescale << " " << newchi << "\n";
       if(itct%PRINTNUM==0 || verbose>0) cout << "ACCEPTED" << " itct " << itct << "\n";
       if(newchi<=bestchi) {
 	bestchi = newchi;
@@ -660,7 +661,7 @@ int main(int argc, char *argv[])
 	accepted_all.push_back(tempstate);
 	statechi.push_back(newchi);
 	covarct++;
-	outstream1 << fixed << setprecision(10) << mjdref << " " << fixed << setprecision(3) << tempstate[0] << " " << tempstate[1] << " " << tempstate[2] << " "  << fixed << setprecision(10) << tempstate[3]/timescale << " " << tempstate[4]/timescale << " " << tempstate[5]/timescale << " " << newchi << "\n";
+	if(outfile.size()>0) outstream1 << fixed << setprecision(10) << mjdref << " " << fixed << setprecision(3) << tempstate[0] << " " << tempstate[1] << " " << tempstate[2] << " "  << fixed << setprecision(10) << tempstate[3]/timescale << " " << tempstate[4]/timescale << " " << tempstate[5]/timescale << " " << newchi << "\n";
 	if(itct%PRINTNUM==0 || verbose>0) cout << "ACCEPTED" << " itct " << itct << "\n";
       } else {
 	// Reject the point
@@ -728,7 +729,7 @@ int main(int argc, char *argv[])
     if(changepar<5 && changepar>=0) changepar++;
     else changepar=0;
   }
-  outstream1.close();
+  if(outfile.size()>0) outstream1.close();
 
   cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromrms << "\n";
   cout << fixed << setprecision(10) << "Best state vectors at MJD " << mjdref << " : " << fixed << setprecision(3) << beststate[0] << " " << beststate[1] << " " << beststate[2] << " "  << fixed << setprecision(10) << beststate[3]/timescale << " " << beststate[4]/timescale << " " << beststate[5]/timescale << "\n";
