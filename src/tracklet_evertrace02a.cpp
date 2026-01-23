@@ -95,12 +95,12 @@
 // be in km and km/sec, relative to the Sun. The RA and Dec must be in decimal degrees.
 static void show_usage()
 {
-  cerr << "Usage: tracklet_evertrace02a -cfg configfile -infile infile -obscode obscodefile -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -minchi min_chi_change -rmsthresh astrometric_rms_threshold -maxiter maxiter -max_astrom_rms max astrometric RMS (arcsec) -outfile outfile -logfile logfile -dedup num_dedup_rounds -verbose verbosity\n";
+  cerr << "Usage: tracklet_evertrace02a -cfg configfile -infile infile -obscode obscodefile -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -minchi min_chi_change -rmsthresh astrometric_rms_threshold -maxiter maxiter -max_astrom_rms max astrometric RMS (arcsec) -rmsfloor min astrometric uncertainty -outfile outfile -logfile logfile -dedup num_dedup_rounds -verbose verbosity\n";
 }
 
 int kdrange_6i02(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec);
 
-int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <observatory> &observatory_list, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevecs, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <vector <double>> &observer_statevecs2, vector <double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp, int verbose);
+int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double rmsfloor, const vector <observatory> &observatory_list, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevecs, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <vector <double>> &observer_statevecs2, vector <double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp, int verbose);
 
 int main(int argc, char *argv[])
 {
@@ -228,6 +228,9 @@ int main(int argc, char *argv[])
   vector <long> trkvec2;
   vector <long> trkvec_temp;
   long tracklets_added = 0;
+  long tracklets_total = 0;
+  long uniquepoints = 0;
+  double timespan;
   vector <long> detections_added;
   double timetol=1.0;
   double skytol=1.0;
@@ -274,6 +277,8 @@ int main(int argc, char *argv[])
   master_mjd = twinfitct_MJD = matchct_MJD = earliest_mjd = latest_mjd = 0.0;
   vector <double> trkmjdvec;
   vector <double> alltrkmjdvec;
+  long goodfitnum,badfitnum,totalfitnum;
+  double rmsfloor=0.0;
   
   make_dvec(6,one_statevec);
 
@@ -696,6 +701,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-rmsfloor" || string(argv[i]) == "-minsigma" || string(argv[i]) == "-minrms" || string(argv[i]) == "-min_astrom_sigma" || string(argv[i]) == "-min_astrometric_sigma" || string(argv[i]) == "-rms_floor" || string(argv[i]) == "--min_astrometric_sigma" ) {
+      if(i+1 < argc) {
+	//There is still something to read;
+	rmsfloor=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Min astrometric uncertainty keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-log" || string(argv[i]) == "-logfile" || string(argv[i]) == "--logfile") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -935,6 +951,7 @@ int main(int argc, char *argv[])
     instream2 >> obsfile >> repfile >> outfile;
     if(obsfile.size()>0 && repfile.size()>0 && outfile.size()>0) {
       outstream1 << "\n\n\nBeginning analysis for file set " << obsfile << " " << repfile << " " << outfile << "\n\n";
+      cout << "\n\n\nBeginning analysis for file set " << obsfile << " " << repfile << " " << outfile << "\n\n";
       // Read the representative state vector file
       instream1.open(repfile);
       if(!instream1) {
@@ -1021,7 +1038,7 @@ int main(int argc, char *argv[])
 	obsMJD.push_back(obsdetvec[obsct].MJD);
 	obsRA.push_back(obsdetvec[obsct].RA);
 	obsDec.push_back(obsdetvec[obsct].Dec);
-	sigastrom.push_back(obsdetvec[obsct].sig_across);
+	sigastrom.push_back(sqrt(DSQUARE(obsdetvec[obsct].sig_across)+DSQUARE(obsdetvec[obsct].sig_along)+DSQUARE(rmsfloor)));
       }
       // Calculate the observer's heliocentric position at the time of each observation.
       observer_statevecs = observer_heliostate = {};
@@ -1061,18 +1078,11 @@ int main(int argc, char *argv[])
       status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, starting_statevecs[0], mjd_sv_vec[0], obsMJD, observer_statevecs, obsRA, obsDec, sigastrom, fitRA, fitDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, chisq, astromRMS, verbose);
       if(status!=0) {
 	cerr << "WARNING: evertrace01 returned error status " << status << " on initial fit\n";
-	cout << fixed << setprecision(8) << "Input MJD and state vectors: " << mjd_sv_vec[0] << " ";
-	cout << fixed << setprecision(2) << starting_statevecs[0][0] << " " << starting_statevecs[0][1] << " " << starting_statevecs[0][2] << " ";
-	cout << fixed << setprecision(8) << starting_statevecs[0][3] << " " << starting_statevecs[0][4] << " " << starting_statevecs[0][5] << "\n";
-	cout << "Input observation vectors:\n";
-	for(i=0;i<long(obsMJD.size());i++) {
-	  cout << fixed << setprecision(8) << obsMJD[i] << " " << obsRA[i] << " " << obsDec[i] << " " << sigastrom[i] << " ";
-	  cout << fixed << setprecision(2) << observer_statevecs[i][0] << " " << observer_statevecs[i][1] << " " << observer_statevecs[i][2] << " ";
-	  cout << fixed << setprecision(8) << observer_statevecs[i][3] << " " << observer_statevecs[i][4] << " " << observer_statevecs[i][5] << "\n";
-	}
-	continue;
+	outstream1 << "WARNING: evertrace01 returned error status " << status << " on initial fit\n";
+ 	continue;
       }
-      cout << "Initial fit: chisq = " << chisq << ", astromRMS = " << astromRMS << "\n";
+      cout << "Initial fit returns chisq, RMS = " << chisq << " " << astromRMS << "\n";
+      outstream1 << "Initial fit returns chisq, RMS = " << chisq << " " << astromRMS << "\n";
       master_statevec = out_statevec; // master_statevec is presumed to be the very best available estimate of the orbit, for now.
       master_mjd = mjd_sv_vec[0];
   
@@ -1299,7 +1309,7 @@ int main(int argc, char *argv[])
 	  obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	  outdetvec2 = {};
 	  trkvec_temp = {}; 
-	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	  if(status!=0) {
 	    cerr << "ERROR: add_tracklet02 returned status " << status << "\n";
 	    return(status);
@@ -1360,6 +1370,7 @@ int main(int argc, char *argv[])
       // Orbit-fit each of the potentially matching tracklets, one at a time, together with the orginal linkage.
       long matchct=0;
       long matchnum=0;
+      goodfitnum = badfitnum = 0;
       track_rmsvec = {};
       for(matchct=0;matchct<long(matching_trkind.size());matchct++) {
 	pairct = matching_trkind[matchct];
@@ -1369,9 +1380,10 @@ int main(int argc, char *argv[])
 	obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	outdetvec2 = {};
 	trkvec_temp = {};
-	status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	if(status!=0) {
 	  cerr << "ERROR: add_tracklet02 returned status " << status << "\n";
+	  outstream1 << "ERROR: add_tracklet02 returned status " << status << "\n";
 	  return(status);
 	}
 	if(trkvec_temp.size()>0) {
@@ -1386,26 +1398,16 @@ int main(int argc, char *argv[])
 	  status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD2, observer_statevecs2, obsRA2, obsDec2, sigastrom2, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
 	  if(status!=0) {
 	    cerr << "WARNING: evertrace01 returned error status " << status << " when fitting tracklet " << matchct << "\n";
-	    cout << fixed << setprecision(8) << "Input MJD and state vectors: " << master_mjd << " ";
-	    cout << fixed << setprecision(2) << master_statevec[0] << " " << master_statevec[1] << " " << master_statevec[2] << " ";
-	    cout << fixed << setprecision(8) << master_statevec[3] << " " << master_statevec[4] << " " << master_statevec[5] << "\n";
-	    cout << "Input tracklet:\n";
-	    for(i=0;i<long(trkvec.size());i++) {
-	      cout << fixed << setprecision(7) << image_log[detvec[trkvec[i]].image].MJD << " " << detvec[trkvec[i]].RA << " " << detvec[trkvec[i]].Dec << " " << detvec[trkvec[i]].mag << " " << detvec[trkvec[i]].sig_across << " " << detvec[trkvec[i]].sig_along << " " << detvec[trkvec[i]].band << " " << detvec[trkvec[i]].obscode << "\n";
-	    }
-	    cout << "Input observation vectors:\n";
-	    for(i=0;i<long(obsMJD2.size());i++) {
-	      cout << fixed << setprecision(8) << obsMJD2[i] << " " << obsRA2[i] << " " << obsDec2[i] << " " << sigastrom2[i] << " ";
-	      cout << fixed << setprecision(2) << observer_statevecs2[i][0] << " " << observer_statevecs2[i][1] << " " << observer_statevecs2[i][2] << " ";
-	      cout << fixed << setprecision(8) << observer_statevecs2[i][3] << " " << observer_statevecs2[i][4] << " " << observer_statevecs2[i][5] << "\n";
-	    }
+	    outstream1 << "WARNING: evertrace01 returned error status " << status << " when fitting tracklet " << matchct << "\n";
+	    badfitnum++;
 	    continue;
-	  }
+	  } else goodfitnum++;
 	  // Calculate residuals from best-fit 
 	  bestresid={};
 	  for(i=0;i<long(obsRA2.size());i++) bestresid.push_back(3600.0 * distradec01(obsRA2[obsct],obsDec2[obsct],bestRA[obsct],bestDec[obsct]));
+	  outstream1 << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
+	  cout << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 
-	  outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
 	  if(astromRMS<bestRMS) bestRMS=astromRMS;
 	  if(astromRMS<max_astrom_rms) {
 	    // The fit was good
@@ -1418,12 +1420,13 @@ int main(int argc, char *argv[])
 	  cout << "Potential match number " << matchct+1 << " had " << trkvec.size() << " points,\nbut all were redundant with observations already in the input linkage\n";
 	}
       }
-      cout << "A total of " << matchnum << " individual tracklets produced plausible astrometric fits\n";
-      outstream1 << "A total of " << matchnum << " individual tracklets produced plausible astrometric fits\n";
+      cout << "Of " << matching_trkind.size() << " tracklets tested, " << badfitnum << " fits failed and " << goodfitnum << " succeeded, producing " << matchnum << " fits with astrometric residuals less than " << max_astrom_rms << " arcsec\n";
+      outstream1 << "Of " << matching_trkind.size() << " tracklets tested, " << badfitnum << " fits failed and " << goodfitnum << " succeeded, producing " << matchnum << " fits with astrometric residuals less than " << max_astrom_rms << " arcsec\n";
       cout << "Lowest astrometric RMS was " << bestRMS << "\n";
       outstream1 << "Lowest astrometric RMS was " << bestRMS << "\n";
 
       if(matchnum>1) {
+	goodfitnum = badfitnum = totalfitnum = 0;
 	bestRMS=LARGERR;
 	bp1=bp2=bp3=bestprimary=-1;
 	best_statevec={};
@@ -1448,9 +1451,10 @@ int main(int argc, char *argv[])
 	  obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	  outdetvec2 = {};
 	  trkvec_temp = {};
-	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	  if(status!=0) {
 	    cerr << "ERROR: add_tracklet02 returned status " << status << "\n";
+	    outstream1 << "ERROR: add_tracklet02 returned status " << status << "\n";
 	    return(status);
 	  }
 	  twinfitct_MJD = detvec[trkvec[0]].MJD;
@@ -1467,7 +1471,7 @@ int main(int argc, char *argv[])
 	    obsMJD3 = obsRA3 = obsDec3 = sigastrom3 = {};
 	    outdetvec3 = {};
 	    trkvec_temp = {};
-	    status = add_tracklet02(observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, observatory_list, Earth_mjd, Earth_statevecs, outdetvec2, trkvec2, detvec, image_log, observer_statevecs3, obsMJD3, obsRA3, obsDec3, sigastrom3, outdetvec3, trkvec_temp, verbose);
+	    status = add_tracklet02(observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec2, trkvec2, detvec, image_log, observer_statevecs3, obsMJD3, obsRA3, obsDec3, sigastrom3, outdetvec3, trkvec_temp, verbose);
 	    if(trkvec_temp.size()<=0) {
 	      cout << "Tracklets " << twinfitct << " and " << matchct << " are apparently redundant\n";
 	      outstream1 << "Tracklets " << twinfitct << " and " << matchct << " are apparently redundant\n";
@@ -1478,10 +1482,13 @@ int main(int argc, char *argv[])
 	      bestRA = bestDec = {};
 	      bestchi = astromRMS = LARGERR;
 	      status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD3, observer_statevecs3, obsRA3, obsDec3, sigastrom3, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
+	      totalfitnum++;
 	      if(status!=0) {
 		cerr << "Warning: evertrace01 failed with status " << status << " when fitting tracklet pair " << twinfitct << " and " << matchct << "\n";
+		outstream1 << "Warning: evertrace01 failed with status " << status << " when fitting tracklet pair " << twinfitct << " and " << matchct << "\n";
+		badfitnum++;
 		continue;
-	      }
+	      } else goodfitnum++;
 	      // Calculate residuals from best-fit
 	      bestresid={};
 	      for(i=0;i<long(obsRA3.size());i++) bestresid.push_back(3600.0 * distradec01(obsRA3[obsct],obsDec3[obsct],bestRA[obsct],bestDec[obsct]));
@@ -1564,7 +1571,7 @@ int main(int argc, char *argv[])
 	  obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	  outdetvec2 = {};
 	  trkvec_temp = {};
-	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	  // Since we now know this tracklet is good, also add it to the
 	  // detections_added vector that will be output
 	  tracklets_added++;
@@ -1576,7 +1583,7 @@ int main(int argc, char *argv[])
 	  obsMJD3 = obsRA3 = obsDec3 = sigastrom3 = {};
 	  outdetvec3 = {};
 	  trkvec_temp = {};
-	  status = add_tracklet02(observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, observatory_list, Earth_mjd, Earth_statevecs, outdetvec2, trkvec2, detvec, image_log, observer_statevecs3, obsMJD3, obsRA3, obsDec3, sigastrom3, outdetvec3, trkvec_temp, verbose);
+	  status = add_tracklet02(observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec2, trkvec2, detvec, image_log, observer_statevecs3, obsMJD3, obsRA3, obsDec3, sigastrom3, outdetvec3, trkvec_temp, verbose);
 	  // Since we now know this tracklet is good, also add it to the
 	  // detections_added vector that will be output
 	  tracklets_added++;
@@ -1623,7 +1630,7 @@ int main(int argc, char *argv[])
 	    obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	    outdetvec2 = {};
 	    trkvec_temp = {};
-	    status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	    status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	    if(status!=0) {
 	      cerr << "ERROR: add_tracklet02 returned status " << status << "\n";
 	      return(status);
@@ -1639,14 +1646,14 @@ int main(int argc, char *argv[])
 	      status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD2, observer_statevecs2, obsRA2, obsDec2, sigastrom2, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
 	      if(status!=0) {
 		cerr << "Warning: evertrace01 failed with status " << status << " when fitting potential third tracklet " << matchct << "\n";
+		outstream1 << "Warning: evertrace01 failed with status " << status << " when fitting potential third tracklet " << matchct << "\n";
 		continue;
 	      }
 	      // Calculate residuals from best-fit
 	      bestresid={};
 	      for(i=0;i<long(obsRA2.size());i++) bestresid.push_back(3600.0 * distradec01(obsRA2[obsct],obsDec2[obsct],bestRA[obsct],bestDec[obsct]));
-
-	      cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
-	      outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
+	      cout << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
+	      outstream1 << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 	      if(astromRMS<max_astrom_rms) {
 		matchnum++;
 		// The fit is good.
@@ -1682,7 +1689,7 @@ int main(int argc, char *argv[])
 	    obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	    outdetvec2 = {};
 	    trkvec_temp = {};
-	    status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	    status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	    // Since we now know this tracklet is good, also add it to the
 	    // detections_added vector that will be output
 	    tracklets_added++;
@@ -1721,7 +1728,7 @@ int main(int argc, char *argv[])
 		obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 		outdetvec2 = {};
 		trkvec_temp = {};
-		status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+		status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 		if(status!=0) {
 		  cerr << "ERROR: add_tracklet02 returned status " << status << "\n";
 		  return(status);
@@ -1737,14 +1744,14 @@ int main(int argc, char *argv[])
 		  status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD2, observer_statevecs2, obsRA2, obsDec2, sigastrom2, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
 		  if(status!=0) {
 		    cerr << "Warning: evertrace01 failed with status " << status << " when fitting potential 4+ tracklet " << matchct << "\n";
+		    outstream1 << "Warning: evertrace01 failed with status " << status << " when fitting potential 4+ tracklet " << matchct << "\n";
 		    continue;
 		  }
 		  // Calculate residuals from best-fit
 		  bestresid={};
 		  for(i=0;i<long(obsRA2.size());i++) bestresid.push_back(3600.0 * distradec01(obsRA2[obsct],obsDec2[obsct],bestRA[obsct],bestDec[obsct]));
-
-		  cout << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
-		  outstream1 << "Fit complete, chisq = " << bestchi << ", astromRMS = " << astromRMS << "\n";
+		  cout << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
+		  outstream1 << "Fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 		  if(astromRMS<max_astrom_rms) {
 		    matchnum++;
 		    // The fit is good.
@@ -1780,7 +1787,7 @@ int main(int argc, char *argv[])
 		obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 		outdetvec2 = {};
 		trkvec_temp = {};
-		status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+		status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 		// Since we now know this tracklet is good, also add it to the
 		// detections_added vector that will be output
 		tracklets_added++;
@@ -1823,7 +1830,7 @@ int main(int argc, char *argv[])
 	  obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	  outdetvec2 = {};
 	  trkvec_temp = {};
-	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	  status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	  // Load the augmented vectors back into the base vectors for output
 	  observer_statevecs = observer_statevecs2;
 	  obsMJD = obsMJD2;
@@ -1837,6 +1844,8 @@ int main(int argc, char *argv[])
 	    detections_added.push_back(trkvec_temp[tct]);
 	  }
 	}
+	cout << "Of " << totalfitnum << " tracklet pairs tested, " << badfitnum << " fits failed and " << goodfitnum << " succeeded\n";
+	outstream1 << "Of " << totalfitnum << " tracklet pairs tested, " << badfitnum << " fits failed and " << goodfitnum << " succeeded\n";
       } else if(matchnum==1) {
 	// Only one plausibly-fitting tracklet was found, so there is no
 	// point in performing the pair-search or anything else.
@@ -1848,7 +1857,7 @@ int main(int argc, char *argv[])
 	obsMJD2 = obsRA2 = obsDec2 = sigastrom2 = {};
 	outdetvec2 = {};
 	trkvec_temp = {};	
-	status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
+	status = add_tracklet02(observer_statevecs, obsMJD, obsRA, obsDec, sigastrom, rmsfloor, observatory_list, Earth_mjd, Earth_statevecs, outdetvec, trkvec, detvec, image_log, observer_statevecs2, obsMJD2, obsRA2, obsDec2, sigastrom2, outdetvec2, trkvec_temp, verbose);
 	// Load the augmented vectors back into the base vectors for output
 	observer_statevecs = observer_statevecs2;
 	obsMJD = obsMJD2;
@@ -1884,11 +1893,13 @@ int main(int argc, char *argv[])
       status = evertrace01(planetnum, planetmasses, planet_backward_mjd, planet_backward_statevecs, planet_forward_mjd, planet_forward_statevecs, master_statevec, master_mjd, obsMJD, observer_statevecs, obsRA, obsDec, sigastrom, bestRA, bestDec, out_statevec, timestep, hnum, hspace, minchichange, astromrmsthresh, maxiter, itnum, bestchi, astromRMS, verbose);
       if(status!=0) {
 	cerr << "WARNING: evertrace01 failed with error status " << status << " in final fit\n";
+	outstream1 << "WARNING: evertrace01 failed with error status " << status << " in final fit\n";
       }
       // Calculate residuals from best-fit
       bestresid={};
       for(i=0;i<long(obsRA.size());i++) bestresid.push_back(3600.0 * distradec01(obsRA[obsct],obsDec[obsct],bestRA[obsct],bestDec[obsct]));
-
+      cout << "Final fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
+      outstream1 << "Final fit complete with chisq, RMS = " << bestchi << " " << astromRMS << "\n";
       cout << "Best chi-squared value was " << bestchi << ", astrometric RMS = " << astromRMS << "\n";
       cout << fixed << setprecision(10) << "Best state vectors at MJD " << master_mjd << " : " << fixed << setprecision(3) << out_statevec[0] << " " << out_statevec[1] << " " << out_statevec[2] << " "  << fixed << setprecision(10) << out_statevec[3] << " " << out_statevec[4] << " " << out_statevec[5] << "\n";
       cout << "State vectors correspond to reference point " << refpoint << " in the input planet files\n";
@@ -1923,6 +1934,8 @@ int main(int argc, char *argv[])
       // Write output file in hldet format
       sort(outdetvec.begin(), outdetvec.end(), early_hldet());
       outstream2.open(outfile);
+      tracklets_total = 1;
+      uniquepoints=0;
       for(i=0;i<long(outdetvec.size());i++) {
 	if(i==0 || outdetvec[i].MJD!=outdetvec[i-1].MJD || outdetvec[i].RA!=outdetvec[i-1].RA || outdetvec[i].Dec!=outdetvec[i-1].Dec) {
 	  outstream2 << fixed << setprecision(7) << outdetvec[i].MJD << "," << outdetvec[i].RA << "," << outdetvec[i].Dec << ",";
@@ -1933,10 +1946,19 @@ int main(int argc, char *argv[])
 	  outstream2 <<  outdetvec[i].image << "," << outdetvec[i].idstring << "," << outdetvec[i].band << ",";
 	  outstream2 << outdetvec[i].obscode << "," << outdetvec[i].known_obj << ",";
 	  outstream2 << outdetvec[i].det_qual << "," << outdetvec[i].index << "\n";
+	  uniquepoints++;
+	  if(i>1 && (outdetvec[i].MJD-outdetvec[i-1].MJD)>NIGHTSTEP) tracklets_total++;
 	}
       }
       outstream2.close();
-      cout << tracklets_added << " tracklets, totalling " << detections_added.size() << " individual points,  were added to the orbit\n";
+      timespan = outdetvec[outdetvec.size()-1].MJD - outdetvec[0].MJD;
+      double a,e,incl;
+      statevec2kep_easy(GMSUN_KM3_SEC2, out_statevec, a, e, incl);
+      outstream1 << fixed << setprecision(6) << outfile << " added " << tracklets_added << " tracklets totalling " << detections_added.size() << " points, for a total linkage spanning " << timespan << " days, with " << tracklets_total << " total tracklets and " << uniquepoints << " total points, fit with RMS " << astromRMS << " and Kep a,e,i " << a/AU_KM << " " << e << " " << incl << "\n";
+      cout << fixed << setprecision(6) << outfile << " added " << tracklets_added << " tracklets totalling " << detections_added.size() << " points\n";
+      cout << fixed << setprecision(6) << "Full linkage spans " << timespan << " days, with " << tracklets_total << " total tracklets and " << uniquepoints << " total points\n";
+      cout << fixed << setprecision(6) << "Final orbit-fit has RMS " << astromRMS << " and Kep a,e,i " << a/AU_KM << " " << e << " " << incl << "\n";
+
     }
   }
 
@@ -1945,7 +1967,7 @@ int main(int argc, char *argv[])
   return(0);
 }
 
-int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, const vector <observatory> &observatory_list, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevecs, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <vector <double>> &observer_statevecs2, vector <double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp, int verbose)
+int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double rmsfloor, const vector <observatory> &observatory_list, const vector <double> &Earth_mjd, const vector <vector <double>> &Earth_statevecs, const vector <hldet> &outdetvec, const vector <long> &trkvec, const vector <hldet> &detvec, const vector <hlimage> &image_log, vector <vector <double>> &observer_statevecs2, vector <double> &obsMJD2, vector <double> &obsRA2, vector <double> &obsDec2, vector <double> &sigastrom2, vector <hldet> &outdetvec2, vector <long> &trkvec_temp, int verbose)
 {
   long obsnum,obsct,tct;
   vector <double> one_statevec;
@@ -1991,7 +2013,7 @@ int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vec
       obsMJD2.push_back(detvec[trkvec[tct]].MJD);
       obsRA2.push_back(detvec[trkvec[tct]].RA);
       obsDec2.push_back(detvec[trkvec[tct]].Dec);
-      sigastrom2.push_back(1.0);
+      sigastrom2.push_back(sqrt(DSQUARE(detvec[trkvec[tct]].sig_across)+DSQUARE(detvec[trkvec[tct]].sig_along)+DSQUARE(rmsfloor)));
       // Load input heliocentric observer position.
       status = obscode_lookup(observatory_list,detvec[trkvec[tct]].obscode,obslon,plxcos,plxsin);
       if(verbose>0) cout << "Tracklet point " << tct << " is from obscode " << detvec[trkvec[tct]].obscode << ", coords " << obslon << " " << plxcos << " " << plxsin << "\n";
@@ -2023,7 +2045,7 @@ int add_tracklet02(const vector <vector <double>> &observer_statevecs, const vec
       obsMJD2.push_back(detvec[trkvec[tct]].MJD);
       obsRA2.push_back(detvec[trkvec[tct]].RA);
       obsDec2.push_back(detvec[trkvec[tct]].Dec);
-      sigastrom2.push_back(1.0);
+      sigastrom2.push_back(sqrt(DSQUARE(detvec[trkvec[tct]].sig_across)+DSQUARE(detvec[trkvec[tct]].sig_along)+DSQUARE(rmsfloor)));
       // Load input heliocentric observer position.
       status = obscode_lookup(observatory_list,detvec[trkvec[tct]].obscode,obslon,plxcos,plxsin);
       if(verbose>0) cout << "Tracklet image " << detvec[trkvec[tct]].image << " is from obscode " << detvec[trkvec[tct]].obscode << ", coords " << obslon << " " << plxcos << " " << plxsin << "\n";

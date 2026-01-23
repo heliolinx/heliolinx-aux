@@ -24,7 +24,7 @@ vector <double> unscale_statevel(const vector <double> &statevec, double timesca
 // The observation file must contain observations in heliolinc's hldet format.
 static void show_usage()
 {
-  cerr << "Usage: MCMC_everhart01a -cfg configfile -ranseed random_number_seed -observations obsfile -mjdref mjdref -maxnum maxnum -repnum repnum -obscode obscodefile -outfile outfile -repfile repfile -verbose verbosity\n";
+  cerr << "Usage: MCMC_everhart01a -cfg configfile -ranseed random_number_seed -observations obsfile -mjdref mjdref -maxnum maxnum -repnum repnum -obscode obscodefile -rmsfloor min astrometric uncertainty -outfile outfile -repfile repfile -verbose verbosity\n";
 }
 
 int main(int argc, char *argv[])
@@ -131,6 +131,7 @@ int main(int argc, char *argv[])
   double eigenrange3 = 0.0l;
   double eigenrange4 = 0.0l;
   double eigenrange5 = 0.0l;
+  double rmsfloor=0.0;
 
   if(argc<11) {
     show_usage();
@@ -417,6 +418,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-rmsfloor" || string(argv[i]) == "-minsigma" || string(argv[i]) == "-minrms" || string(argv[i]) == "-min_astrom_sigma" || string(argv[i]) == "-min_astrometric_sigma" || string(argv[i]) == "-rms_floor" || string(argv[i]) == "--min_astrometric_sigma" ) {
+      if(i+1 < argc) {
+	//There is still something to read;
+	rmsfloor=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Min astrometric uncertainty keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-out" || string(argv[i]) == "-outfile" || string(argv[i]) == "-o" || string(argv[i]) == "--outfile" || string(argv[i]) == "--outorb" || string(argv[i]) == "--outorbits") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -547,7 +559,8 @@ int main(int argc, char *argv[])
     obsTDB.push_back(detvec[obsct].MJD + TTDELTAT/SOLARDAY);
     obsRA.push_back(detvec[obsct].RA);
     obsDec.push_back(detvec[obsct].Dec);
-    sigastrom.push_back(detvec[obsct].sig_across);
+    sigastrom.push_back(sqrt(DSQUARE(detvec[obsct].sig_across)+DSQUARE(detvec[obsct].sig_along)+DSQUARE(rmsfloor)));
+    cout << "sigastrom = " << sigastrom[obsct] << "\n";
   }
   // Check that MJD values are time-ordered.
   for(obsct=1;obsct<obsnum;obsct++) {
