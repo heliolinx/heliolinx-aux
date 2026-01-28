@@ -95,7 +95,7 @@
 // be in km and km/sec, relative to the Sun. The RA and Dec must be in decimal degrees.
 static void show_usage()
 {
-  cerr << "Usage: tracklet_evertrace02a -cfg configfile -infile infile -obscode obscodefile -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -minchi min_chi_change -rmsthresh astrometric_rms_threshold -maxiter maxiter -max_astrom_rms max astrometric RMS (arcsec) -rmsfloor min astrometric uncertainty -outfile outfile -logfile logfile -dedup num_dedup_rounds -verbose verbosity\n";
+  cerr << "Usage: tracklet_evertrace02a -cfg configfile -infile infile -obscode obscodefile -minchi min_chi_change -kepspan time_span_for_Keplerian_fit(day) -twinfitnum twinfitnum -allfitnum allfitnum -mjdstart mjdstart -mjdend mjdend -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file  -timetol MJD_matching_tolerance(days) -skytol sky_matching_radius(deg) -veltol velocity_matching_radius(deg/day) -minchi min_chi_change -rmsthresh astrometric_rms_threshold -maxiter maxiter -max_astrom_rms max astrometric RMS (arcsec) -rmsfloor min astrometric uncertainty -timeoff time offset for infile (seconds) -outfile outfile -logfile logfile -dedup num_dedup_rounds -verbose verbosity\n";
 }
 
 int kdrange_6i02(const vector <KD_point6ix2> &kdvec, const point6ix2 &querypoint, long range, vector <long> &indexvec);
@@ -279,6 +279,7 @@ int main(int argc, char *argv[])
   vector <double> alltrkmjdvec;
   long goodfitnum,badfitnum,totalfitnum;
   double rmsfloor=0.0;
+  double timeoffset=0.0;
   
   make_dvec(6,one_statevec);
 
@@ -712,6 +713,17 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-timeoff" || string(argv[i]) == "-time_off" || string(argv[i]) == "-time_offset" || string(argv[i]) == "-timeoffset" ) {
+      if(i+1 < argc) {
+	//There is still something to read;
+	timeoffset=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Min astrometric uncertainty keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-log" || string(argv[i]) == "-logfile" || string(argv[i]) == "--logfile") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -756,6 +768,7 @@ int main(int argc, char *argv[])
   cout << "input list file " << infile << "\n";
   cout << "input timespan for Keplerian fit " << kepspan << "\n";
   cout << "output file " << logfile << "\n";
+  cout << "Time offset read as " << timeoffset << " seconds\n";
   
   // Load hspace vector based on selected value of hnum
   if(hnum<3 || hnum>8) {
@@ -1034,6 +1047,7 @@ int main(int argc, char *argv[])
       // Load the MJD, RA, and Dec vectors needed by arctrace02.
       obsMJD = obsRA = obsDec = sigastrom = {};
       for(obsct=0;obsct<obsnum;obsct++) {
+	obsdetvec[obsct].MJD += timeoffset/SOLARDAY;
 	cout << "Loading point " << obsct << ": " << obsdetvec[obsct].MJD << " " << obsdetvec[obsct].RA << " " << obsdetvec[obsct].Dec << " " << obsdetvec[obsct].sig_across << "\n";
 	obsMJD.push_back(obsdetvec[obsct].MJD);
 	obsRA.push_back(obsdetvec[obsct].RA);
@@ -1124,6 +1138,10 @@ int main(int argc, char *argv[])
 	planetpos02(ephMJD[ephct],5,Earth_mjd,Earth_statevecs,one_statevec);
 	eph_obstate.push_back(one_statevec);
       }
+      ephRAmat = {};
+      ephDecmat = {};
+      ephRAvelmat = {};
+      ephDecvelmat = {};
 
       for(repct=0;repct<repnum;repct++) {
 	cout << "Calculating representative ephemeris " << repct << "\n";
