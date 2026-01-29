@@ -256,9 +256,10 @@ int main(int argc, char *argv[])
   vector <KD_point6ix2> kdtree;
   vector <long> queryout;
   int refpoint=0;
-  long twinfitnum = TWINFIT_DEFAULT;
+  long twinfitnum, twinfitnum_temp,allfitnum,allfitnum_temp;
+  twinfitnum = twinfitnum_temp = TWINFIT_DEFAULT;
+  allfitnum = allfitnum_temp = 1; // Later we make allfitnum default to the total number of matches.
   long twinfitct = 0;
-  long allfitnum = 0;
   int allfitnum_default = 1;
   double_index one_dindex = double_index(0.0, 0);
   vector <double_index> track_rmsvec;
@@ -537,7 +538,7 @@ int main(int argc, char *argv[])
     } else if(string(argv[i]) == "-twinfitnum") {
       if(i+1 < argc) {
 	//There is still something to read;
-	twinfitnum=stol(argv[++i]);
+	twinfitnum_temp = twinfitnum = stol(argv[++i]);
 	i++;
       }
       else {
@@ -548,7 +549,7 @@ int main(int argc, char *argv[])
     } else if(string(argv[i]) == "-allfitnum") {
       if(i+1 < argc) {
 	//There is still something to read;
-	allfitnum=stol(argv[++i]);
+	allfitnum_temp = allfitnum = stol(argv[++i]);
 	allfitnum_default=0;
 	i++;
       }
@@ -956,6 +957,8 @@ int main(int argc, char *argv[])
     repfile="";
     outfile="";
     badread=0;
+    twinfitnum_temp = twinfitnum;
+    allfitnum_temp = allfitnum;
     mjd_sv_vec = {};
     starting_statevecs = {};
     bestRMS=LARGERR;
@@ -1185,7 +1188,7 @@ int main(int argc, char *argv[])
 	  ephDecvel.push_back(Decvel);
 	}
 	ephRAmat.push_back(ephRA);
-	ephDecmat.push_back(ephDec);
+	ephDecmat.push_back(ephDec); 
 	ephRAvelmat.push_back(ephRAvel);
 	ephDecvelmat.push_back(ephDecvel);
       }
@@ -1453,13 +1456,14 @@ int main(int argc, char *argv[])
 	for(matchct=0;matchct<matchnum;matchct++) {
 	  cout << "Match of rank " << matchct << ", index = " << track_rmsvec[matchct].index << ", RMS = " << track_rmsvec[matchct].delem << "\n";
 	}
-	if(twinfitnum>matchnum) twinfitnum = matchnum;
+	twinfitnum_temp = twinfitnum;
+	if(twinfitnum_temp>matchnum) twinfitnum_temp = matchnum;
 	// Load empty index vector for each primary tracklet
 	onefit_indices = {};
 	twinfit_indices = {};
-	for(twinfitct=0;twinfitct<twinfitnum;twinfitct++) twinfit_indices.push_back(onefit_indices);
-	// Loop over the twinfitnum best matches.    
-	for(twinfitct=0;twinfitct<twinfitnum;twinfitct++) {
+	for(twinfitct=0;twinfitct<twinfitnum_temp;twinfitct++) twinfit_indices.push_back(onefit_indices);
+	// Loop over the twinfitnum_temp best matches.    
+	for(twinfitct=0;twinfitct<twinfitnum_temp;twinfitct++) {
 	  // Load the tracklet of rank twinfitct in the RMS-sorted list
 	  pairct = track_rmsvec[twinfitct].index;
 	  // Add this tracklet to the provisional fitting vectors.
@@ -1476,11 +1480,12 @@ int main(int argc, char *argv[])
 	    return(status);
 	  }
 	  twinfitct_MJD = detvec[trkvec[0]].MJD;
-	  if(allfitnum>matchnum || allfitnum_default==1) allfitnum = matchnum;
-	  // Loop over the allfitnum best tracklets after twinfit in the ordered list.
-	  cout << "Launching inner loop: twinfitct, allfitnum = " << twinfitct << " " << allfitnum << "\n";
-	  for(matchct=twinfitct+1;matchct<allfitnum;matchct++) {
-	    cout << "Inside inner loop: matchct, allfitnum = " << matchct << " " << allfitnum << "\n";
+	  allfitnum_temp = allfitnum;
+	  if(allfitnum_temp>matchnum || allfitnum_default==1) allfitnum_temp = matchnum;
+	  // Loop over the allfitnum_temp best tracklets after twinfit in the ordered list.
+	  cout << "Launching inner loop: twinfitct, allfitnum_temp = " << twinfitct << " " << allfitnum_temp << "\n";
+	  for(matchct=twinfitct+1;matchct<allfitnum_temp;matchct++) {
+	    cout << "Inside inner loop: matchct, allfitnum_temp = " << matchct << " " << allfitnum_temp << "\n";
 	    pairct2 = track_rmsvec[matchct].index;
 	    trkvec2={};
 	    trkvec2 = tracklet_lookup(trk2det, pairct2);
@@ -1516,13 +1521,13 @@ int main(int argc, char *argv[])
 	      if(astromRMS<max_astrom_rms) {
 		// The fit is good.
 		twinfit_indices[twinfitct].push_back(pairct2);
-		if(matchct<twinfitnum) twinfit_indices[matchct].push_back(pairct);
+		if(matchct<twinfitnum_temp) twinfit_indices[matchct].push_back(pairct);
 		cout << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
 		outstream1 << "With astromRMS = " << astromRMS << ", this is a good fit: \n";
 		if(DEBUG>0) {
 		  cout << "Loaded index " << pairct2 << " into twinfit_indices[" << twinfitct << "], which now has a length of " << twinfit_indices[twinfitct].size() << "\n";
 		  outstream1 << "Loaded index " << pairct2 << " into twinfit_indices[" << twinfitct << "], which now has a length of " << twinfit_indices[twinfitct].size() << "\n";
-		  if(matchct<twinfitnum) {
+		  if(matchct<twinfitnum_temp) {
 		    cout << "Also loaded index " << pairct << " into twinfit_indices[" << matchct << "], which now has a length of " << twinfit_indices[matchct].size() << "\n";
 		    outstream1 << "Also loaded index " << pairct << " into twinfit_indices[" << matchct << "], which now has a length of " << twinfit_indices[matchct].size() << "\n";
 		  }
