@@ -419,7 +419,8 @@ int main(int argc, char *argv[])
   cout << "input observatory code file " << obscodefile << "\n";
   cout << "output file " << outfile << "\n";
 
-  // Load hspace vector based on selected value of hnum
+  // Load hspace vector based on selected value of hnum.
+  // Note that all of these numerical values are from solarsyst_dyn_geo01.h
   if(hnum<3 || hnum>8) {
     cerr << "Warning: hnum set to out-of-range value (" << hnum << "), will be reset to default of " << HNUM << "\n";
     hnum=HNUM;
@@ -625,7 +626,7 @@ int main(int argc, char *argv[])
   }
   outstream1.close();
   astromrms = sqrt(astromrms/double(obsnum));  
-  cout << "Writing state vector filed called " << statefile << "\n";
+  cout << "Writing state vector file called " << statefile << "\n";
   outstream1.open(statefile);
   outstream1 << fixed << setprecision(10) << planet_forward_mjd[refpoint] << " " << fixed << setprecision(3) << out_statevec[0] << " " << out_statevec[1] << " " << out_statevec[2] << " "  << fixed << setprecision(10) << out_statevec[3] << " " << out_statevec[4] << " " << out_statevec[5] << " " << fixed << setprecision(5) << astromrms << "\n";
   outstream1.close();
