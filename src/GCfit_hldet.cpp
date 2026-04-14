@@ -38,12 +38,13 @@ int main(int argc, char *argv[])
   obsnum = detvec.size();
   cout << "Read " << obsnum << " data lines from observation file " << hldetfile << "\n";
   
-  double poleRA,poleDec,angvel,pa,crosstrack,alongtrack;
+  double poleRA,poleDec,angvel,pa,crosstrack,alongtrack,arcdist;
   vector <double> fitRA;
   vector <double> fitDec;
   vector <double> residuals;
   
   status = greatcircresid(detvec,poleRA,poleDec,angvel,pa,crosstrack,alongtrack,fitRA,fitDec,residuals,verbose);
+  arcdist = angvel*(detvec[detvec.size()-1].MJD-detvec[0].MJD)*3600.0;
   double GCRnew=0.0;
   for(i=0;i<long(residuals.size());i++) {
     GCRnew += residuals[i]*residuals[i];
@@ -58,7 +59,7 @@ int main(int argc, char *argv[])
   cout << "pointnum, angvel(deg/day), angvel(arcsec/hr), PA(degrees)\n";
   cout << fixed << setprecision(6) <<  residuals.size() << " " << angvel << " " << angvel*150.0 << " " << pa << "\n";
   cout << "across(arcsec), along, GCR, GCRnew, arcdist, pole coords (degrees)\n";
-  cout << fixed << setprecision(6) << crosstrack << " " << alongtrack << " " << sqrt(crosstrack*crosstrack+alongtrack*alongtrack) << " " << GCRnew << " ";
+  cout << fixed << setprecision(6) << crosstrack << " " << alongtrack << " " << sqrt(crosstrack*crosstrack+alongtrack*alongtrack) << " " << GCRnew << " " << arcdist << " ";
   cout << fixed << setprecision(9) << poleRA << " " << poleDec << "\n";
   
   return(0);
