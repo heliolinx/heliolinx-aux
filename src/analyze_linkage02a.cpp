@@ -15,7 +15,6 @@
 #include "cmath"
 #define DEBUG 0
 #define HNUM 4
-#define PHASE_G 0.15
 
 // Note: configfile contains the masses and ephemerides for all of the planets.
 // The observation file must contain observations in heliolinc's hldet format.
@@ -23,6 +22,8 @@ static void show_usage()
 {
   cerr << "Usage: analyze_linkage02a -cfg configfile -observations obsfile -kepspan time_span_for_Keplerian_fit(day) -minchi min_chi_change -rmsthresh astrometric_rms_threshold -obscode obscodefile -maxiter maxiter -ptpow point_num_exponent -nightpow night_num_exponent -timepow timespan_exponent -rmspow astrom_rms_exponent -outfile outfile -linkfile linkfile -colorfile colorfile -verbose verbosity\n";
 }
+
+double phaseeffect01a(double phaseang);
 
 int main(int argc, char *argv[])
 {
@@ -67,6 +68,7 @@ int main(int argc, char *argv[])
   vector <double> fitresid;
   vector <double> obsMJD;
   vector <double> obsTDB;
+  vector <double> Hmagvec;
   vector <double> sigastrom;
   string lnfromfile;
   vector <string> linestringvec;
@@ -124,6 +126,14 @@ int main(int argc, char *argv[])
   vector <double> band_median_objphot;
   string bandstring;
   vector <vector <double>> targ_statevecs;
+  double disteffect,phaseeffect,phaseang,sunelong;
+  disteffect = phaseeffect = phaseang = sunelong = 0.0;
+  double minsunelong,maxsunelong,minphaseang,maxphaseang,meansunelong,meanphaseang;
+  minsunelong = maxsunelong = minphaseang = maxphaseang = meansunelong = meanphaseang = 0.0;
+  vector <double> phaseang_vec;
+  vector <double> sunelong_vec;
+  double magrange,magmean,magmedian,magrms,Hmag,Hmag_mean,Hmag_median,Hmag_rms,Hmag_range,minGCR,maxGCR;
+  magrange = magmean = magmedian = magrms = Hmag = Hmag_mean = Hmag_median = Hmag_rms = Hmag_range = minGCR = maxGCR = 0.0l;
 
   if(argc<11) {
     show_usage();
@@ -769,20 +779,32 @@ int main(int argc, char *argv[])
   band_resolved_objphot = {};
   for(bandct=0; bandct<bandnum; bandct++) band_resolved_objphot.push_back(band_median_objphot);
   make_dvec(bandnum,band_median_objphot);
-  // Calculate magnitudes.
+  // Calculate phase angles, solar elongations, and magnitudes.
+  Hmagvec = phaseang_vec = sunelong_vec = {};
   for(obsct=0;obsct<obsnum;obsct++) {
     vector <double> targ_to_obs;
     vector <double> targ_to_sun;
+    vector <double> obs_to_sun;
     make_dvec(3,targ_to_obs);
     make_dvec(3,targ_to_sun);
+    make_dvec(3,obs_to_sun);
     for(k=0;k<3;k++) targ_to_obs[k] = observer_statevecs[obsct][k] - targ_statevecs[obsct][k];
     for(k=0;k<3;k++) targ_to_sun[k] = sunstatevec_obs[obsct][k] - targ_statevecs[obsct][k];
+    for(k=0;k<3;k++) obs_to_sun[k] = sunstatevec_obs[obsct][k] - observer_statevecs[obsct][k];
     double obsdist = nvecabs(targ_to_obs);
     double sundist = nvecabs(targ_to_sun);
-    double disteffect = 5.0*log10(obsdist*sundist/AU_KM/AU_KM); // Positive for distances greater than 1 AU.
+    double obssundist = nvecabs(obs_to_sun);
+    if(!isnormal(obsdist) || !isnormal(sundist)) {
+      cerr << "ERROR: bad distances in phase angle calculation:\n";
+      cerr << "targ_to_obs: " << targ_to_obs[0] << " " << targ_to_obs[1] << " " << targ_to_obs[2] << "\n";
+      cerr << "targ_to_sun: " << targ_to_sun[0] << " " << targ_to_sun[1] << " " << targ_to_sun[2] << "\n";
+      cerr << "obsdist, sundist = " << obsdist << " " << sundist << "\n";
+      return(1);
+    }
+    // Calculate the extent to which distance effects make the object's
+    // apparent magnitude dimmer than its H magnitude.
+    disteffect = 5.0*log10(obsdist*sundist/AU_KM/AU_KM); // Positive for distances greater than 1 AU.
     double cosphase = nvecdotprod(targ_to_obs,targ_to_sun)/obsdist/sundist;
-    double phaseang,phi1,phi2,phaseeffect;
-    double phaseslope = PHASE_G;
     if(cosphase>1.0L) {
       cout << "WARNING: trying to take arccos of 1.0 + " << cosphase-1.0L << "\n";
       phaseang=0.0L;
@@ -790,18 +812,42 @@ int main(int argc, char *argv[])
       cout << "WARNING: trying to take arccos of -1.0 - " << cosphase+1.0L << "\n";
       phaseang=M_PI;
     } else phaseang = acos(cosphase);
-    phi1 = exp(-PHASECONST_A1*pow(tan(phaseang/2.0),PHASECONST_B1));
-    phi2 = exp(-PHASECONST_A2*pow(tan(phaseang/2.0),PHASECONST_B2));
-    phaseeffect = -2.5*log10((1.0-phaseslope)*phi1 + phaseslope*phi2); // Positive for phase>0
+    phaseang_vec.push_back(phaseang*DEGPRAD);
+    // Calculate the extent to which phase effects make the object's
+    // apparent magnitude dimmer than its H magnitude.
+    phaseeffect = phaseeffect01a(phaseang);
+    // Calculate the solar elongation
+    vector <double> obs_to_targ;
+    make_dvec(3,obs_to_targ);
+    for(k=0;k<3;k++) obs_to_targ[k] = -targ_to_obs[k];
+    double coselong = nvecdotprod(obs_to_targ,obs_to_sun)/obsdist/obssundist;
+    if(coselong>1.0L) {
+      cout << "WARNING: trying to take arccos of 1.0 + " << coselong-1.0L << "\n";
+      sunelong=0.0L;
+    } else if(coselong<-1.0L) {
+      cout << "WARNING: trying to take arccos of -1.0 - " << coselong+1.0L << "\n";
+      sunelong=M_PI;
+    } else sunelong = acos(coselong);
+    sunelong_vec.push_back(sunelong*DEGPRAD);
     // Loop over bands, and add the new photometric point in the right place.
     bandstring = string(detvec[obsct].band);
     for(bandct=0;bandct<bandnum;bandct++) {
       if(bandstring == bandnames[bandct]) {
 	// Calculate nominal absolute magnitude H for this detection in this band
-	double Hmag = detvec[obsct].mag - disteffect - phaseeffect;
-	band_resolved_objphot[bandct].push_back(Hmag);
+	if(detvec[obsct].mag>0.0) {
+	  Hmag = detvec[obsct].mag - disteffect - phaseeffect;
+	  band_resolved_objphot[bandct].push_back(Hmag);
+	  Hmagvec.push_back(Hmag-bandoffsets[bandct]);
+	}
+	else Hmagvec.push_back(-99.9);
       }
     }
+  }
+  // Catch incorrect vector lengths
+  if(obsnum!=long(phaseang_vec.size()) || obsnum!=long(sunelong_vec.size()) || obsnum!=long(Hmagvec.size())) {
+    cerr << "ERROR: vector length mismatch at phase elongation Hmag step\n";
+    cerr << "Lengths are " << obsnum << " " << phaseang_vec.size() << " " << sunelong_vec.size() << " " << Hmagvec.size() << "\n";
+    return(4);
   }
   // Calculate median Hmag for each band.
   band_median_objphot = {};
@@ -833,20 +879,33 @@ int main(int argc, char *argv[])
   }
   outstream1 << "\n";
   outstream1.close();
+  // Calculate mean and extrema for phase angle and solar elongation.
+  minphaseang = maxphaseang = phaseang_vec[0];
+  minsunelong = maxsunelong = sunelong_vec[0];
+  for(obsct=1;obsct<obsnum;obsct++) {
+    if(phaseang_vec[obsct]<minphaseang) minphaseang=phaseang_vec[obsct];
+    else if(phaseang_vec[obsct]>maxphaseang) maxphaseang=phaseang_vec[obsct];
+    if(sunelong_vec[obsct]<minsunelong) minsunelong=sunelong_vec[obsct];
+    else if(sunelong_vec[obsct]>maxsunelong) maxsunelong=sunelong_vec[obsct];
+  }
+  dmeanrms01(phaseang_vec, &meanphaseang, &ldval);
+  dmeanrms01(sunelong_vec, &meansunelong, &ldval);
   
   outstream1.open(outfile);
   // Write final best-fit to output file
-  outstream1 << "MJD RA Dec RA_resid Dec_resid total_resid\n";
-  cout << "MJD RA Dec RA_resid Dec_resid total_resid\n";
+  outstream1 << "MJD obsRA obsDec fitRA fitDec RA_resid Dec_resid total_resid obscode mag band phase elong Hmag\n";
+  cout << "MJD obsRA obsDec fitRA fitDec RA_resid Dec_resid total_resid obscode mag band phase elong Hmag\n";
   astromrms = chisq = 0.0;
   for(obsct=0;obsct<obsnum;obsct++) {
     dist = 3600.0*distradec01(obsRA[obsct],obsDec[obsct],fitRA[obsct],fitDec[obsct]);
     astromrms += dist*dist;
     chisq += dist*dist/sigastrom[obsct]/sigastrom[obsct];
     if(verbose>0) cout << fixed << setprecision(10) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " " << fitRA[obsct] << " " << fitDec[obsct] << " ";
-    if(verbose>0) cout << fixed << setprecision(10) << (obsRA[obsct]-fitRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << (obsDec[obsct]-fitDec[obsct])*3600.0 << " " << dist << " " << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << "\n";
+    if(verbose>0) cout << fixed << setprecision(10) << (obsRA[obsct]-fitRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << (obsDec[obsct]-fitDec[obsct])*3600.0 << " " << dist << " " << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << " ";
+    if(verbose>0) cout << fixed << setprecision(4) << phaseang_vec[obsct] << " " << sunelong_vec[obsct] << " " << Hmagvec[obsct] << "\n";
     outstream1 << fixed << setprecision(10) << obsMJD[obsct] << " " << obsRA[obsct] << " " << obsDec[obsct] << " " << fitRA[obsct] << " " << fitDec[obsct] << " ";
-    outstream1 << fixed << setprecision(10) << (obsRA[obsct]-fitRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << (obsDec[obsct]-fitDec[obsct])*3600.0 << " " << dist << " " << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << "\n";
+    outstream1 << fixed << setprecision(10) << (obsRA[obsct]-fitRA[obsct])*cos(obsDec[obsct]/DEGPRAD)*3600.0 << " " << (obsDec[obsct]-fitDec[obsct])*3600.0 << " " << dist << " " << detvec[obsct].obscode << " " << detvec[obsct].mag << " " << detvec[obsct].band << " ";
+    outstream1 << fixed << setprecision(4) << phaseang_vec[obsct] << " " << sunelong_vec[obsct] << " " << Hmagvec[obsct] << "\n";
   }
   outstream1.close();
   astromrms = sqrt(astromrms/double(obsnum));  
@@ -860,8 +919,6 @@ int main(int argc, char *argv[])
   double avg_det_qual, max_known_obj, clustmetric;
   double angvel,crosstrack,alongtrack,PA,poleRA,poleDec;
   angvel=crosstrack=alongtrack=PA=poleRA=poleDec=0.0;
-  double magrange,magmean,magrms,minGCR,maxGCR;
-  magrange = magmean = magrms = minGCR = maxGCR = 0.0l;
   double crossquad,alongquad,GCRA,GCDec,meantime;
   crossquad = alongquad = GCRA = GCDec = meantime = 0.0;
   vector <double> crossvec;
@@ -893,12 +950,13 @@ int main(int argc, char *argv[])
     if(detvec[i].mag>0.0l) magvec.push_back(detvec[i].mag);
   }
   avg_det_qual/=double(detvec.size());
-  // Analyze magnitude range.
+  
+  // Analyze apparent magnitude range.
   if(magvec.size()<=0) {
-    magmean = 0.0;
+    magmean = magmedian = -99.9;
     magrms = magrange = 99.9;
   } else if(magvec.size()==1) {
-    magmean = magvec[0];
+    magmean = magmedian = magvec[0];
     magrms = magrange = 99.9;
   } else if(magvec.size()<=5) {
     // Sort magvec
@@ -906,6 +964,7 @@ int main(int argc, char *argv[])
     dmeanrms01(magvec, &magmean, &magrms);
     // Magrange will be the full max-min
     magrange = magvec[magvec.size()-1] - magvec[0];
+    magmedian = dmedian(magvec);
   } else {
     // Sort magvec
     sort(magvec.begin(), magvec.end());
@@ -914,8 +973,39 @@ int main(int argc, char *argv[])
     // Magrange will be the second-largest value minus
     // the second-smallest, offering some robustness
     // against outliers
+    magmedian = dmedian(magvec);
   }
-
+  
+  // Analyze absolute magnitude (Hmag) range.
+  magvec={};
+  for(obsct=0;obsct<obsnum;obsct++) {
+    if(Hmagvec[obsct]>0.0l) magvec.push_back(Hmagvec[obsct]);
+  }
+  Hmag_mean = Hmag_median = Hmag_rms = Hmag_range = 0.0;
+  if(magvec.size()<=0) {
+    Hmag_mean = Hmag_median = -99.9;
+    Hmag_rms = Hmag_range = 99.9;
+  } else if(magvec.size()==1) {
+    Hmag_mean = Hmag_median = magvec[0];
+    Hmag_rms = magrange = 99.9;
+  } else if(magvec.size()<=5) {
+    // Sort magvec
+    sort(magvec.begin(), magvec.end());
+    dmeanrms01(magvec, &Hmag_mean, &Hmag_rms);
+    // Hmag_range will be the full max-min
+    Hmag_range = magvec[magvec.size()-1] - magvec[0];
+    Hmag_median = dmedian(magvec);
+  } else {
+    // Sort magvec
+    sort(magvec.begin(), magvec.end());
+    dmeanrms01(magvec, &Hmag_mean, &Hmag_rms);
+    Hmag_range = magvec[magvec.size()-2] - magvec[1];
+    Hmag_median = dmedian(magvec);
+    // Hmag_range will be the second-largest value minus
+    // the second-smallest, offering some robustness
+    // against outliers
+  }
+  
   // Perform global Great Circle fit, and calculate the quadratic divergence.
   greatcircfit(detvec, poleRA, poleDec, angvel, PA, crosstrack, alongtrack);
   meantime = 0.0;
@@ -1110,9 +1200,18 @@ int main(int argc, char *argv[])
   outstream1 << detvec[0].idstring << ",";
   outstream1 << min_nightstep << ",";
   outstream1 << max_nightstep << ",";
-  outstream1 << magmean << ",";
+  outstream1 << magmedian << ",";
   outstream1 << magrms << ",";
   outstream1 << magrange << ",";
+  outstream1 << minphaseang << ",";
+  outstream1 << meanphaseang << ",";
+  outstream1 << maxphaseang << ",";
+  outstream1 << minsunelong << ",";
+  outstream1 << meansunelong << ",";
+  outstream1 << maxsunelong << ",";
+  outstream1 << Hmag_median << ",";
+  outstream1 << Hmag_rms << ",";
+  outstream1 << Hmag_range << ",";
   outstream1 << rating << ",";
   outstream1 << crossquad << ",";
   outstream1 << alongquad << ",";
@@ -1156,9 +1255,18 @@ int main(int argc, char *argv[])
   cout << detvec[0].idstring << "\t\tstringID\n";
   cout << min_nightstep << "\t\tmin_nightstep\n";
   cout << max_nightstep << "\t\tmax_nightstep\n";
-  cout << magmean << "\t\tmagmean\n";
+  cout << magmedian << "\t\tmagmedian\n";
   cout << magrms << "\t\tmagrms\n";
   cout << magrange << "\t\tmagrange\n";
+  cout << minphaseang << "\t\tminphaseang\n";
+  cout << meanphaseang << "\t\tmeanphaseang\n";
+  cout << maxphaseang << "\t\tmaxphaseang\n";
+  cout << minsunelong << "\t\tminsunelong\n";
+  cout << meansunelong << "\t\tmeansunelong\n";
+  cout << maxsunelong << "\t\tmaxsunelong\n";
+  cout << Hmag_median << "\t\tHmag_median\n";
+  cout << Hmag_rms << "\t\tHmag_rms\n";
+  cout << Hmag_range << "\t\tHmag_range\n";
   cout << rating << "\t\trating\n";
   cout << crossquad << "\t\tCross-track acceleration\n";
   cout << alongquad << "\t\tAlong-track acceleration\n";
@@ -1168,3 +1276,12 @@ int main(int argc, char *argv[])
   return(0);
 }
 
+double phaseeffect01a(double phaseang)
+{
+  double phi1,phi2,phaseeffect;
+  double phaseslope = PHASE_G;
+  phi1 = exp(-PHASECONST_A1*pow(tan(phaseang/2.0),PHASECONST_B1));
+  phi2 = exp(-PHASECONST_A2*pow(tan(phaseang/2.0),PHASECONST_B2));
+  phaseeffect = -2.5*log10((1.0-phaseslope)*phi1 + phaseslope*phi2); // Positive for phase>0
+  return(phaseeffect);
+}

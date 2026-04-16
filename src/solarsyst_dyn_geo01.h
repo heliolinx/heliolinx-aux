@@ -118,6 +118,7 @@ using namespace std;
 #define PHASECONST_A2 1.87L // for calculating asteroid apparent magnitudes.
 #define PHASECONST_B1 0.63L
 #define PHASECONST_B2 1.22L
+#define PHASE_G 0.15
 #define WARN_INVERSE_TRIG 0 // If 0, don't print warning messages about taking arcsin or arccos of values
                             // or arccos of values infinitesimally outside the range [-1,1]. Just collapse
                             // them to exactly 1.0 or -1.0 like a good robot.
@@ -785,10 +786,17 @@ public:
   }
 };
 
-class early_hldet{
+class early_hldet_old{
 public:
   inline bool operator() (const hldet& o1, const hldet& o2) {
     return(o1.MJD < o2.MJD || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==-1) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==0 && o1.RA<o2.RA));
+  }
+}; 
+
+class early_hldet{
+public:
+  inline bool operator() (const hldet& o1, const hldet& o2) {
+    return(o1.MJD < (o2.MJD-IMAGETIMETOL/SOLARDAY) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==-1) || (fabs(o1.MJD-o2.MJD)<=IMAGETIMETOL/SOLARDAY && stringnmatch01(o1.obscode,o2.obscode,3)==0 && o1.RA<o2.RA));
   }
 };
 
