@@ -223,8 +223,8 @@ int main(int argc, char *argv[])
     outstream1  << fixed << setprecision(6) << "        <ra>" << detvec[i].RA << "</ra>\n";
     outstream1  << fixed << setprecision(6) << "        <dec>" << detvec[i].Dec << "</dec>\n";
     if(detvec[i].sig_across>0 && detvec[i].sig_along>0) {
-      outstream1  << fixed << setprecision(3) << "        <rmsRA>" << detvec[i].sig_across << "</rmsRA>\n";
-      outstream1  << fixed << setprecision(3) << "        <rmsDec>" << detvec[i].sig_along << "</rmsDec>\n";
+      outstream1  << fixed << setprecision(3) << "        <rmsRA>" << detvec[i].sig_along << "</rmsRA>\n";
+      outstream1  << fixed << setprecision(3) << "        <rmsDec>" << detvec[i].sig_across << "</rmsDec>\n";
     }
     outstream1  << "        <astCat>Gaia2</astCat>\n";
     outstream1  << fixed << setprecision(3) << "        <mag>" << detvec[i].mag << "</mag>\n";

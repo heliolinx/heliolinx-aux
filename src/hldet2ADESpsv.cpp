@@ -251,8 +251,8 @@ int main(int argc, char *argv[])
     else if(detvec[i].Dec>=9.9999995) outstream1  << fixed << setprecision(6) << " " << detvec[i].Dec << "|";
     else outstream1  << fixed << setprecision(6) << "  " << detvec[i].Dec << "|";
     if(detvec[i].sig_across>0 && detvec[i].sig_along>0) {
-      outstream1  << fixed << setprecision(3) << detvec[i].sig_across << "|";
       outstream1  << fixed << setprecision(3) << detvec[i].sig_along << " |";
+      outstream1  << fixed << setprecision(3) << detvec[i].sig_across << "|";
     } else outstream1 << "    |      |";
     outstream1  << "Gaia2 |";
     if(detvec[i].mag>=9.9995) outstream1  << fixed << detvec[i].mag << "|";

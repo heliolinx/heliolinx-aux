@@ -38,7 +38,7 @@
  #define MINSPAN 1.0 // Temporal span must be at least this large (in days) for a bona fide cluster
 #define MINDAYSTEPS 2 // A bona fide cluster must have at least this many intra-point
                       // time intervals greater than INTRANIGHTSTEP days.
-#define INTRANIGHTSTEP 0.3 // Minimum interval in days between successive points
+#define INTRANIGHTSTEP 0.2 // Minimum interval in days between successive points
                            // in a tracklet, to enable them to be counted as being
                            // on separate nights.
 #define MINTRACKTIME 300.0 // Minimum tracklet timespan in seconds.

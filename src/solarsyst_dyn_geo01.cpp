@@ -8368,6 +8368,84 @@ int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d 
   return(0);
 }
 
+// Kepler_fg_func_int_Ryder_Halley: April 16, 2026:
+// Like Kepler_fg_func_int, but uses a Halley solver, identified
+// by Ryder Strauss as a faster method, in place of the earlier
+// function's Newton's Method solution.
+int Kepler_fg_func_int_Ryder_Halley(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel)
+{
+  if(mjdend==mjdstart) {
+    // Catch the trivial case
+    endpos=startpos;
+    endvel=startvel;
+    return(0);
+  }
+  double r0 = vecabs3d(startpos);
+  double v0 = vecabs3d(startvel);
+  double u = dotprod3d(startvel,startpos);
+  double a = r0*MGsun/(2.0l*MGsun-v0*v0*r0);
+  if(a<=0.0l) {
+    // The orbit is unbound, and a solution will prove impossible
+    // with the formulae implemented in this particular function.
+    return(1);
+  }
+  double n = sqrt(MGsun/a/a/a);
+  double EC = 1.0l - r0/a;
+  double ES = u/n/a/a;
+  double e = sqrt(EC*EC + ES*ES);
+  double deltat = SOLARDAY*(mjdend-mjdstart);
+
+  double sinM, x, q, dqdx, dx;
+  sinM = x = q = dqdx = dx = 0;
+  int itct=0;
+
+  // Select initial guess for x = deltaE = (E-E0)
+  if(e<0.1l) x = n*deltat;
+  else {
+    sinM = (ES*cos(n*deltat - ES) + EC*sin(n*deltat - ES))/e;
+    x = n*deltat + (sinM/fabs(sinM))*DANBYK_689*e - ES;
+  }
+
+  // Halley's method: cubic convergence; typically ~3 iterations vs ~7 for Newton,
+  // saving ~2x sin/cos evaluations for the common case of low-eccentricity orbits.
+  // See halleysolver.md for derivation and benchmark notes.
+  double sin_x = sin(x);
+  double cos_x = cos(x);
+  q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
+  while(fabs(q)>KEPTRANSTOL && itct<KEPTRANSITMAX) {
+    dqdx = 1.0l - EC*cos_x + ES*sin_x;               // f'(x)
+    double d2qdx2 = EC*sin_x + ES*cos_x;              // f''(x)
+    double halley_denom = dqdx*dqdx - 0.5l*q*d2qdx2;
+    dx = (fabs(halley_denom) > 1.0e-30l) ? -q*dqdx/halley_denom : -q/dqdx;
+    x += dx;
+    sin_x = sin(x);
+    cos_x = cos(x);
+    q = x - EC*sin_x + ES*(1.0l - cos_x) - n*deltat;
+    itct++;
+  }
+
+  // Evaluate f and g functions (reuse sin_x/cos_x from final iteration)
+  double f,g,fdot,gdot,r,v;
+  f = g = fdot = gdot = r = v = 0.0l;
+
+  f = (a/r0)*(cos_x - 1.0l) + 1.0l;
+  g = deltat + (sin_x - x)/n;
+
+  endpos.x = f*startpos.x + g*startvel.x;
+  endpos.y = f*startpos.y + g*startvel.y;
+  endpos.z = f*startpos.z + g*startvel.z;
+  r = vecabs3d(endpos);
+
+  fdot = -a*a*n*sin_x/r/r0;
+  gdot = a*(cos_x-1.0l)/r + 1.0l;
+  
+  endvel.x = fdot*startpos.x + gdot*startvel.x;
+  endvel.y = fdot*startpos.y + gdot*startvel.y;
+  endvel.z = fdot*startpos.z + gdot*startvel.z;
+  
+  return(0);
+}
+
 
 // Kepler_fg_func_vec: April 26, 2024: Like Kepler_fg_func_int, but
 // evaluates the Keplerian orbit at multiple times, supplied in
@@ -17484,9 +17562,9 @@ double Hergetchi_vstar(double geodist1, double geodist2, int Hergetpoint1, int H
   double deltat = obsMJD[Hergetpoint2] - obsMJD[Hergetpoint1] - (geodist2-geodist1)/CLIGHT_AUDAY;
   double a,e;
   point3d startvel = point3d(0.0l,0.0l,0.0l);
-  //cout << "Hergetchi_vstar launching Twopoint_Kepler_vstar\n"; //Squiggle
+  //cout << "Hergetchi_vstar launching Twopoint_Kepler_vstar\n"; 
   int status = Twopoint_Kepler_vstar(GMSUN_KM3_SEC2, startpos, endpos, deltat, startvel, KVSTAR_ITMAX);
-  //cout << "Twopoint_Kepler_vstar finished with status = " << status << "\n"; //Squiggle
+  //cout << "Twopoint_Kepler_vstar finished with status = " << status << "\n"; 
   if(status!=0) {
     // Twopoint_Kepler_vstar() returned a failure code.
     if(verbose>=2) cerr << "ERROR: Hergetchi_vstar received failure code " << status << " from Twopoint_Kepler_vstar()\n";
@@ -17622,9 +17700,9 @@ double Hergetchi_vstar2(double geodist1, double geodist2, int Hergetpoint1, int 
   double deltat = obsMJD[Hergetpoint2] - obsMJD[Hergetpoint1] - (geodist2-geodist1)/CLIGHT_AUDAY;
   double a,e;
   point3d startvel = point3d(0.0l,0.0l,0.0l);
-  //cout << "Hergetchi_vstar launching Twopoint_Kepler_vstar\n"; //Squiggle
+  //cout << "Hergetchi_vstar launching Twopoint_Kepler_vstar\n"; 
   int status = Twopoint_Kepler_vstar(GMSUN_KM3_SEC2, startpos, endpos, deltat, startvel, KVSTAR_ITMAX);
-  //cout << "Twopoint_Kepler_vstar finished with status = " << status << "\n"; //Squiggle
+  //cout << "Twopoint_Kepler_vstar finished with status = " << status << "\n"; 
   if(status!=0) {
     // Twopoint_Kepler_vstar() returned a failure code.
     if(verbose>=2) cerr << "ERROR: Hergetchi_vstar received failure code " << status << " from Twopoint_Kepler_vstar()\n";
@@ -17687,6 +17765,9 @@ int Herget_simplex_int(long double geodist1, long double geodist2, long double s
   if(geodist1<=0.0 || geodist2<=0.0) {
     cerr << "ERROR: Herget_simplex_int received invalid input geodists " << geodist1 << " and " << geodist2 << "\n";
     return(1);
+  } else if(geodist1>MAXORBDIST_AU || geodist2>MAXORBDIST_AU) {
+    cerr << "ERROR: Herget_simplex_int received invalid input geodists " << geodist1 << " and " << geodist2 << "\n";
+    return(2);
   }
   if(simptype==0) {
     // Define initial simplex
@@ -17759,6 +17840,9 @@ int Herget_simplex_int(double geodist1, double geodist2, double simpscale, doubl
   if(geodist1<=0.0 || geodist2<=0.0) {
     cerr << "ERROR: Herget_simplex_int received invalid input geodists " << geodist1 << " and " << geodist2 << "\n";
     return(1);
+  } else if(geodist1>MAXORBDIST_AU || geodist2>MAXORBDIST_AU) {
+    cerr << "ERROR: Herget_simplex_int received invalid input geodists " << geodist1 << " and " << geodist2 << "\n";
+    return(2);
   }
   if(simptype==0) {
     // Define initial simplex
@@ -17825,12 +17909,38 @@ int Herget_simplex_int(double geodist1, double geodist2, double simpscale, doubl
   }
   return(0);
 }
+
+// Herget_simplex_check: May 04, 2026:
+// Check if all the vertices of a simplex are valid.
+// Return 1 if they are all valid and 0 if they are all
+// invalid. If only one point is invalid, return that
+// number plus 10. If only one point is valid, return
+// that number plus 20.
+int Herget_simplex_check(double simplex[3][2])
+{
+  int numbad=0;
+  int i=0;
+  vector <int> isbad={};
+  vector <int> isgood={};
+  for(i=0;i<3;i++) {
+    if(!isnormal(simplex[i][0]) || simplex[i][0]<=0.0 || simplex[i][0]>MAXORBDIST_AU || !isnormal(simplex[i][1]) || simplex[i][1]<=0.0 || simplex[i][1]>MAXORBDIST_AU) {
+      numbad++;
+      isbad.push_back(i);
+    } else isgood.push_back(i);
+  }
+  if(numbad<=0) return(1);
+  else if(numbad>=3) return(0);
+  else if(numbad==1) return(10+isbad[0]);
+  else if(numbad==2) return(20+isgood[0]);
+  else return(-1); // Should be impossible.
+}
   
 
 #define SIMP_EXPAND_NUM 200
 #define SIMP_EXPAND_FAC 20.0L
 #define SIMP_MAXCT_EXPAND 2000
 #define SIMP_MAXCT_TOTAL 10000
+#define SIMP_MAXCT_FIX 10
 
 // Hergetfit01: November 03, 2022:
 // Use Hergetchi01 to perform orbit fitting using the Method of Herget,
@@ -17885,6 +17995,17 @@ long double Hergetfit01(long double geodist1, long double geodist2, long double 
     if(status!=0) {
       cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
       return(LARGERR);
+    }
+  } else if(status==2) {
+    // This is the error code for a too-large input distance
+    if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+    if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
+    status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+    cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+    cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+    if(status!=0) {
+      cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+      return(LARGERR3);
     }
   }
   
@@ -18237,6 +18358,17 @@ double Hergetfit01(double geodist1, double geodist2, double simplex_scale, int s
     if(status!=0) {
       cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
       return(LARGERR2);
+    }
+  } else if(status==2) {
+    // This is the error code for a too-large input distance
+    if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+    if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
+    status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+    cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+    cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+    if(status!=0) {
+      cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+      return(LARGERR3);
     }
   }
  
@@ -18593,6 +18725,17 @@ double Hergetfit_vstar(double geodist1, double geodist2, double simplex_scale, i
       cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
       return(LARGERR3);
     }
+  } else if(status==2) {
+    // This is the error code for a too-large input distance
+    if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+    if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
+    status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+    cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+    cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+    if(status!=0) {
+      cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+      return(LARGERR3);
+    }
   }
 
   for(i=0;i<3;i++) simpchi[i]=LARGERR3;
@@ -18833,6 +18976,17 @@ double Hergetfit_vstar(double geodist1, double geodist2, double simplex_scale, i
 	  cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
 	  return(LARGERR3);
 	}
+      } else if(status==2) {
+	// This is the error code for a too-large input distance
+	if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+	if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
+	status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+	cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+	cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+	if(status!=0) {
+	  cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+	  return(LARGERR3);
+	}
       }
       for(i=0;i<3;i++) {
 	if(verbose>=2) cout << "Calling Hergetchi_vstar with distances " << simplex[i][0] << " " << simplex[i][1] << "\n";
@@ -18946,6 +19100,17 @@ double Hergetfit_vstarSV(double geodist1, double geodist2, double simplex_scale,
     // This is the error code for a zero or negative input distance.
     if(geodist1<MINHERGETDIST) geodist1=MINHERGETDIST;
     if(geodist2<MINHERGETDIST) geodist2=MINHERGETDIST;
+    status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+    cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+    cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+    if(status!=0) {
+      cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+      return(LARGERR3);
+    }
+  } else if(status==2) {
+    // This is the error code for a too-large input distance
+    if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+    if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
     status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
     cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
     cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
@@ -19183,6 +19348,17 @@ double Hergetfit_vstarSV(double geodist1, double geodist2, double simplex_scale,
 	  cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
 	  return(LARGERR3);
 	}
+      } else if(status==2) {
+	// This is the error code for a too-large input distance
+	if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+	if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
+	status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+	cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+	cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+	if(status!=0) {
+	  cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+	  return(LARGERR3);
+	}
       }
       for(i=0;i<3;i++) {
 	if(verbose>=2) cout << "Calling Hergetchi_vstar with distances " << simplex[i][0] << " " << simplex[i][1] << "\n";
@@ -19238,6 +19414,63 @@ double Hergetfit_vstarSV(double geodist1, double geodist2, double simplex_scale,
   return(chisq);
 }
 
+// Herget_guess_fix: May 05, 2026:
+// Given a two-element vector containing guesses for the geocentric
+// distances for use in a Herget orbit fit, check that the guesses
+// make sense and correct them if not. Return 1 if a correction has
+// been made, and zero if it has not. Also, increment integer values
+// to indicate what type of correction has been made: non-normal
+// distance, too-small distance, too-large distance, or implausibly
+// high implied radial velocity.
+int Herget_guess_fix(double distance_guesses[2], double timediff, long &num_notnormal, long &num_smalldist, long &num_largedist, long &num_velcor, long whichpoint)
+{
+  int made_correction=0;
+  double maxvel = HERGET_MAXVEL*SOLARDAY/AU_KM; // maxvel has units of AU/day
+  // Check for non-normal distances
+  if(!isnormal(distance_guesses[0])) {
+    distance_guesses[0] = DEFAULT_HERGET_DIST + 0.005*M_PI*double(whichpoint)*intpowD(-1.1, whichpoint);
+    num_notnormal++;
+    made_correction=1;
+  }
+  if(!isnormal(distance_guesses[1])) {
+    distance_guesses[1] = DEFAULT_HERGET_DIST - 0.003*M_PI*double(whichpoint+1)*intpowD(-1.1, whichpoint);
+    num_notnormal++;
+    made_correction=1;
+  }
+  // Check for too-small distances
+  if(distance_guesses[0]<0.0) distance_guesses[0] = -distance_guesses[0];
+  if(distance_guesses[0]>=0.0 && distance_guesses[0]<MINHERGETDIST) {
+    distance_guesses[0] = SMALL_HERGET_DIST + 0.0017*M_PI*double(whichpoint)*intpowD(-1.1, whichpoint);
+    num_smalldist++;
+    made_correction=1;
+  }
+  if(distance_guesses[1]<0.0) distance_guesses[1] = -distance_guesses[1];
+  if(distance_guesses[1]>=0.0 && distance_guesses[1]<MINHERGETDIST) {
+    distance_guesses[1] += SMALL_HERGET_DIST + 0.0013*M_PI*double(whichpoint+1)*intpowD(-1.1, whichpoint);
+    num_smalldist++;
+    made_correction=1;
+  }
+  // Check for too-large distances
+  if(distance_guesses[0]>MAXORBDIST_AU) {
+    distance_guesses[0] = LARGE_HERGET_DIST + 0.0011*M_PI*double(whichpoint)*intpowD(-1.1, whichpoint);
+    num_largedist++;
+    made_correction=1;
+  }
+  if(distance_guesses[1]>MAXORBDIST_AU) {
+    distance_guesses[1] = LARGE_HERGET_DIST - 0.0007*M_PI*double(whichpoint+1)*intpowD(-1.1, whichpoint);
+    num_largedist++;
+    made_correction=1;
+  }
+  // Check that the distances do not imply an implausibly high velocity
+  if(fabs(distance_guesses[1] - distance_guesses[0])/timediff > maxvel) {
+    num_velcor++;
+    while(fabs(distance_guesses[1] - distance_guesses[0])/timediff > maxvel) distance_guesses[1] = (distance_guesses[1]+distance_guesses[0])/2.0;
+    made_correction=1;
+  }
+  return(made_correction);
+}
+
+
 // Hergetfit_vstar_chisq: March 25, 2026:
 // Like Hergetfit_vstar, but calculates a properly resolved chi-square
 // value using across-track and along-track astrometric uncertainties.
@@ -19259,6 +19492,17 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
   int i,j,worstpoint, bestpoint;
   int simp_eval_ct=0;
   int simp_total_ct=0;
+  long num_largedist, num_smalldist, num_velcor, num_notnormal;
+  num_largedist = num_smalldist = num_velcor = num_notnormal = 0; // Track the number of out-of-range, unphysical cases that have been corrected
+  double maxvel = HERGET_MAXVEL*SOLARDAY/AU_KM; // maxvel has units of AU/day
+  double timediff = 1.0;
+  int status=0;
+  
+  if(!isnormal(geodist1) || !isnormal(geodist2) || geodist1<MINHERGETDIST || geodist2<MINHERGETDIST || geodist1>MAXORBDIST_AU || geodist2>MAXORBDIST_AU) {
+    if(verbose>0) cerr << "ERROR: Hergetfit_vstar_chisq called with out-of-range or invalid distances " << geodist1 << " and " << geodist2 << "\n";
+    return(LARGERR3);
+  }
+  
   if(simplex_scale<=0.0L || simplex_scale>=SIMPLEX_SCALE_LIMIT) {
     cerr << "WARNING: simplex scale must be between 0 and " << SIMPLEX_SCALE_LIMIT << "\n";
     cerr << "Input out-of-range value " << simplex_scale << " will be reseset to ";
@@ -19269,7 +19513,15 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
   // Input points are indexed from 1; apply offset
   Hergetpoint1 = point1-1;
   Hergetpoint2 = point2-1;
-
+  timediff = obsMJD[Hergetpoint2] - obsMJD[Hergetpoint1];
+  // Modify input guess at geocentric distance to avoid unreasonably large velocities.
+  if(fabs(geodist1-geodist2)/timediff > maxvel) {
+    if(verbose>0) cerr << "WARNING: Hergetfit_vstar_chisq called with input distances that\n";
+    if(verbose>0) cerr << "imply implausibly high velocity.\n";
+    if(verbose>0) cerr << "Distances " << geodist1 << " and " << geodist2 << "; timediff " << timediff << " days, implied velocity " << fabs(geodist1-geodist2)/timediff*AU_KM/SOLARDAY << " km/sec\n";
+    while(fabs(geodist1-geodist2)/timediff > maxvel) geodist2 = (geodist1+geodist2)/2.0;
+    if(verbose>0) cerr << "Distances have been revised to " << geodist1 << " and " << geodist2 << "\n";
+  }
   if(verbose>=2) {
     cout << "Herget points: " << Hergetpoint1 << " " << Hergetpoint2 << "\n";
     for(i=0;i<long(obsMJD.size());i++) {
@@ -19278,11 +19530,22 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
   }
 
   // SETUP FOR DOWNHILL SIMPLEX SEARCH
-  int status = Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);  
+  status = Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);  
   if(status==1) {
     // This is the error code for a zero or negative input distance.
-    if(geodist1<MINHERGETDIST) geodist1=MINHERGETDIST;
-    if(geodist2<MINHERGETDIST) geodist2=MINHERGETDIST;
+    if(geodist1<MINHERGETDIST) geodist1=SMALL_HERGET_DIST;
+    if(geodist2<MINHERGETDIST) geodist2=SMALL_HERGET_DIST;
+    status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
+    cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
+    cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
+    if(status!=0) {
+      cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
+      return(LARGERR3);
+    }
+  } else if(status==2) {
+    // This is the error code for a too-large input distance
+    if(geodist1>MAXORBDIST_AU) geodist1=LARGE_HERGET_DIST;
+    if(geodist2>MAXORBDIST_AU) geodist2=LARGE_HERGET_DIST;
     status=Herget_simplex_int(geodist1, geodist2, simplex_scale, simplex, simptype);
     cerr << "WARNING: Herget_simplex_int() called with invalid distance.\n";
     cerr << "retrying with newly assigned distances " << geodist1 << " and " << geodist2 << "\n";
@@ -19291,7 +19554,14 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
       return(LARGERR3);
     }
   }
-
+  // Check that simplex does not result in any unphysical velocities.
+  for(i=0;i<3;i++) {
+    while(fabs(simplex[i][0]-simplex[i][1])/timediff > maxvel) {
+      if(verbose>0) cerr << "Correcting bad input simplex; implied velocity was " << fabs(simplex[i][0]-simplex[i][1])/timediff*AU_KM/SOLARDAY << " km/sec\n";
+      simplex[i][1] = (simplex[i][0]+simplex[i][1])/2.0;
+    }
+  }
+  
   for(i=0;i<3;i++) simpchi[i]=LARGERR3;
   // Calculate chi-square values for each point in the initial simplex
   // Note that the output vectors fitRA, fitDec, and resid are null-wiped
@@ -19341,7 +19611,7 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
     global_bestd2 = simplex[bestpoint][1];
   }
   // LAUNCH DOWNHILL SIMPLEX SEARCH
-  while(simprange>ftol && simp_total_ct <= SIMP_MAXCT_TOTAL) {
+  while(simprange>ftol && simp_total_ct <= SIMP_MAXCT_TOTAL && num_notnormal <= SIMP_MAXCT_FIX && num_smalldist <= SIMP_MAXCT_FIX && num_largedist <= SIMP_MAXCT_FIX && num_velcor <= SIMP_MAXCT_FIX) {
     if(verbose>=2) cout << fixed << setprecision(6) << "Eval " << simp_total_ct << ": Best reduced chi-square value is " << bestchi/obsMJD.size() << ", range is " << simprange << ", vector is " << simplex[bestpoint][0] << " "  << simplex[bestpoint][1] << "\n";
     
     // Try to reflect away from worst point
@@ -19356,11 +19626,8 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
     // Calculate new trial point
     trialdist[0] = refdist[0] - (simplex[worstpoint][0] - refdist[0]);
     trialdist[1] = refdist[1] - (simplex[worstpoint][1] - refdist[1]);
-    // Make sure we don't have negative distances
-    if(trialdist[0]<0.0) trialdist[0] = -trialdist[0];
-    else if(trialdist[0]==0.0) trialdist[0] += MINHERGETDIST*10.0;
-    if(trialdist[1]<0.0) trialdist[1] = -trialdist[1];
-    else if(trialdist[1]==0.0) trialdist[1] += MINHERGETDIST*10.0;
+    // Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+    Herget_guess_fix(trialdist, timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, 0);
     // Calculate chi-square value at this new point
     chisq = Hergetchi_vstar2(trialdist[0], trialdist[1], Hergetpoint1, Hergetpoint2, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec, crossresid, alongresid, orbit, verbose);
     if(chisq>=LARGERR3) {
@@ -19377,11 +19644,9 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
      // Extrapolate further in this direction: maybe we can do even better
       trialdist[0] = refdist[0] - 2.0L*(simplex[worstpoint][0] - refdist[0]);
       trialdist[1] = refdist[1] - 2.0L*(simplex[worstpoint][1] - refdist[1]);
-      // Make sure we don't have negative distances
-      if(trialdist[0]<0.0) trialdist[0] = -trialdist[0];
-      else if(trialdist[0]==0.0) trialdist[0] += MINHERGETDIST*10.0;
-      if(trialdist[1]<0.0) trialdist[1] = -trialdist[1];
-      else if(trialdist[1]==0.0) trialdist[1] += MINHERGETDIST*10.0;
+      // Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+      Herget_guess_fix(trialdist, timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, 0);
+      // Calculate chi-square value at this new point     
       newchi = Hergetchi_vstar2(trialdist[0], trialdist[1], Hergetpoint1, Hergetpoint2, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec, crossresid, alongresid, orbit, verbose);
       if(newchi>=LARGERR3) {
 	cerr << "WARNING: Hergetchi_vstar2() returned error code with input " << trialdist[0] << ", " << trialdist[1] << "\n";
@@ -19415,11 +19680,8 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
 	// instead of reflecting away from it.
 	trialdist[0] = 0.5L*(simplex[worstpoint][0] + refdist[0]);
 	trialdist[1] = 0.5L*(simplex[worstpoint][1] + refdist[1]);
-	// Make sure we don't have negative distances
-	if(trialdist[0]<0.0) trialdist[0] = -trialdist[0];
-	else if(trialdist[0]==0.0) trialdist[0] += MINHERGETDIST*10.0;
-	if(trialdist[1]<0.0) trialdist[1] = -trialdist[1];
-	else if(trialdist[1]==0.0) trialdist[1] += MINHERGETDIST*10.0;
+	// Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+	Herget_guess_fix(trialdist, timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, 0);
 	// Calculate chi-square value at this new point
 	chisq = Hergetchi_vstar2(trialdist[0], trialdist[1], Hergetpoint1, Hergetpoint2, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec, crossresid, alongresid, orbit, verbose);
 	if(chisq>=LARGERR3) {
@@ -19443,11 +19705,9 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
 	    if(i!=bestpoint) {
 	      simplex[i][0] = 0.5L*(simplex[i][0] + simplex[bestpoint][0]);
 	      simplex[i][1] = 0.5L*(simplex[i][1] + simplex[bestpoint][1]);
-	      // Make sure we don't have negative distances
-	      if(simplex[i][0]<0.0) simplex[i][0] = -simplex[i][0];
-	      else if(simplex[i][0]==0.0) simplex[i][0] += MINHERGETDIST*10.0;
-	      if(simplex[i][1]<0.0) simplex[i][1] = -simplex[i][1];
-	      else if(simplex[i][1]==0.0) simplex[i][1] += MINHERGETDIST*10.0;
+	      // Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+	      Herget_guess_fix(simplex[i], timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, i);
+	      // Calculate the new chi-square value	      
 	      simpchi[i] = Hergetchi_vstar2(simplex[i][0], simplex[i][1], Hergetpoint1, Hergetpoint2, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec, crossresid, alongresid, orbit, verbose);
 	      if(simpchi[i]>=LARGERR3) {
 		cerr << "WARNING: Hergetchi_vstar2() returned error code on simplex point " << i << ": " << simplex[i][0] << ", " << simplex[i][1] << "\n";
@@ -19475,11 +19735,13 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
       for(i=0;i<3;i++) {
 	simplex[i][0] = refdist[0] + (simplex[i][0]-refdist[0])*SIMP_EXPAND_FAC;
 	simplex[i][1] = refdist[1] + (simplex[i][1]-refdist[1])*SIMP_EXPAND_FAC;
-	// Make sure we don't have negative distances
-	if(simplex[i][0]<0.0) simplex[i][0] = -simplex[i][0];
-	else if(simplex[i][0]==0.0) simplex[i][0] += MINHERGETDIST*10.0;
-	if(simplex[i][1]<0.0) simplex[i][1] = -simplex[i][1];
-	else if(simplex[i][1]==0.0) simplex[i][1] += MINHERGETDIST*10.0;
+	// Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+	Herget_guess_fix(simplex[i], timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, i);
+      }
+      if(Herget_simplex_check(simplex) != 1) {
+	cerr << "ERROR: expanded simplex fails check\n";
+	cerr << simplex[0][0] << " " << simplex[0][1] << " " << simplex[1][0] << " " << simplex[1][1] << " " << simplex[2][0] << " " << simplex[2][1] << "\n";
+	return(LARGERR3);
       }
       // Re-evaluate the chi-square values
       for(i=0;i<3;i++) {
@@ -19531,6 +19793,15 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
 	  cerr << "ERROR: Herget_simplex_int() failed to create a good simplex\n";
 	  return(LARGERR3);
 	}
+	// Check for bad distance values (non-normal, too small or too large, implausible implied velocity)
+	for(i=0;i<3;i++) {
+	  Herget_guess_fix(simplex[i], timediff, num_notnormal, num_smalldist, num_largedist, num_velcor, i);
+	}
+	if(Herget_simplex_check(simplex) != 1) {
+	  cerr << "ERROR: Herget_simplex_int() reported success, but simplex fails check\n";
+	  cerr << simplex[0][0] << " " << simplex[0][1] << " " << simplex[1][0] << " " << simplex[1][1] << " " << simplex[2][0] << " " << simplex[2][1] << "\n";
+	  return(LARGERR3);
+	}
       }
       for(i=0;i<3;i++) {
 	if(verbose>=2) cout << "Calling Hergetchi_vstar2 with distances " << simplex[i][0] << " " << simplex[i][1] << "\n";
@@ -19577,7 +19848,10 @@ double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_sc
     }
     // Close main optimization loop.
   }
-  
+  if(num_notnormal > SIMP_MAXCT_FIX) cerr << "Warning: more than " << num_notnormal << " instances of non-normal distances had to be fixed in Hergetfit_vstar_chisq\n";
+  if(num_smalldist > SIMP_MAXCT_FIX && verbose>0) cerr << "Warning: more than " << num_smalldist << " instances of unreasonably small distances had to be fixed in Hergetfit_vstar_chisq\n";
+  if(num_largedist > SIMP_MAXCT_FIX) cerr << "Warning: more than " << num_largedist << " instances of unreasonably large distances had to be fixed in Hergetfit_vstar_chisq\n";
+  if(num_velcor > SIMP_MAXCT_FIX && verbose>0) cerr << "Warning: more than " << num_velcor << " instances of out-of-range velocities had to be fixed in Hergetfit_vstar_chisq\n";
   // Perform fit with final best parameters
   chisq = Hergetchi_vstar2(global_bestd1, global_bestd2, Hergetpoint1, Hergetpoint2, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, fitRA, fitDec, crossresid, alongresid, orbit, verbose);
   if(TRACECONV>0) cout << "TRACECONV: " << global_bestd1 << " " << global_bestd2  << ": " << chisq << "\n";
@@ -20708,6 +20982,67 @@ double MPCcal2MJD(int year, int month, double day)
   totaldays += day-1.0l; // Subtract 1 because there is no 0th day of the month.
   return(totaldays);
 }
+
+// cal2MJD: July 16, 2026
+// Given a calendar date with integer year, month, day, hour,
+// and minute, and double-precision second, calculate the Modified Julian Day
+// (MJD). Works on any date after Jan 01, 1900.
+double cal2MJD(int year, int month, int day, int hour, int minute, double second)
+{
+  int daystojan;
+  double totaldays = 15020.0l; // MJD on UT 1900 January 1.0
+  int i=1900;
+  int isleap=0;
+  vector <int> days_per_month;
+  
+  if(year<1900 || month<1 || month>12 || day<1.0 || day>32.0) {
+    cerr << "ERROR: MPCcal2MJD has bad date: " << year << " " << month << " " << day << "\n";
+    return(-1.0l);
+  }
+
+  // Load days_per_month
+  days_per_month={};
+  days_per_month.push_back(0); // Null, to get 1-index
+  days_per_month.push_back(31); // January
+  days_per_month.push_back(28); // February
+  days_per_month.push_back(31); // March
+  days_per_month.push_back(30); // April
+  days_per_month.push_back(31); // May
+  days_per_month.push_back(30); // June
+  days_per_month.push_back(31); // July
+  days_per_month.push_back(31); // August
+  days_per_month.push_back(30); // September
+  days_per_month.push_back(31); // October
+  days_per_month.push_back(30); // November
+  days_per_month.push_back(31); // December
+  
+  // Calculate the number of days up to 00:00 UT,
+  // Jan 1, of the given year.
+  daystojan=0;
+  for(i=1900;i<year;i++) {
+    if((i%4 == 0 && i%100 != 0) || i%400 == 0) {
+      isleap=1;
+    } else isleap=0;
+    daystojan += 365 + isleap;
+  }
+  
+  // Find out if the current year is a leapyear
+  i=year;
+  if((i%4 == 0 && i%100 != 0) || i%400 == 0) {
+    isleap=1;
+  } else isleap=0;
+  
+  totaldays += double(daystojan);
+  for(i=1; i<month; i++) { // Remember, days_per_month vector is 1-indexed!
+    totaldays += double(days_per_month[i]);
+  }
+  if(month>2 && isleap==1) totaldays += 1.0l; // Add leap day of current year.
+
+  totaldays += double(day)-1.0l; // Subtract 1 because there is no 0th day of the month.
+  totaldays += double(hour)/24.0l + double(minute)/1440.0l + second/SOLARDAY;
+  return(totaldays);
+}
+
 
 // mpc80_parseline: February 01, 2023:
 // Read one line from an MPC 80-column formatted file,
@@ -33320,6 +33655,9 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
   double timediff=0l;
   double E = 0.0l;
   double v_inf = 0.0l;
+  double obstanvel = MAXTANVELCUT;
+  double meanobsdist,trackletarc,trackletangvel;
+  meanobsdist = trackletarc = trackletangvel = 0.0;
  
   // Calculate approximate heliocentric distances from the
   // input quadratic approximation.
@@ -33400,6 +33738,25 @@ int trk2statevec_fgfunc(const vector <hlimage> &image_log, const vector <trackle
     targposvec2={};
     deltavec2={};
     status2 = helioproj02(unitbary, observerpos2, heliodistvec[i2], deltavec2, targposvec2);
+    // Calculate the mean distance from the observer over the two points in the tracklet.
+    // If the projection equations had two solutions (meaning the hypothesis distance was
+    // interior to the Earth), use the larger solutions.
+    meanobsdist = (deltavec1[0] + deltavec2[0])/2.0;
+    if(status1==2 && status2==2 &&  deltavec1[1]>deltavec1[0] && deltavec2[1]>deltavec2[0]) meanobsdist = (deltavec1[1] + deltavec2[1])/2.0;
+    if(minimpactpar > 0.0 && minimpactpar < MAXTANVELCUT && meanobsdist < mingeoobs*AU_KM && status1 > 0 && status2 > 0 && badpoint==0) {
+      // New check added May 13, 2026: Calculate observer-centric tangential velocity,
+      // and reject the point if that is too low. The value of minimpactpar is here
+      // interpreted as a tangential velocity in km/sec, since it is nonzero but too small to
+      // make sense as an impact parameter in km.
+      trackletarc = distradec01(tracklets[pairct].RA1, tracklets[pairct].Dec1, tracklets[pairct].RA2, tracklets[pairct].Dec2)/DEGPRAD; // Tracklet arc in radians
+      timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY; // Time difference in seconds
+      trackletangvel = trackletarc/timediff; // radians per second
+      obstanvel = trackletangvel*meanobsdist; // km/sec
+      if(obstanvel<minimpactpar) {
+	// Tangential velocity relative to the observer is too low
+	badpoint=1;
+      }
+    }
     if(status1 > 0 && status2 > 0 && badpoint==0) {
       // Calculate time difference between the observations
       timediff = (image_log[i2].MJD - image_log[i1].MJD)*SOLARDAY;
@@ -46015,6 +46372,9 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
   char rating[SHORTSTRINGLEN];
   int status=1;
   int is_identical=0;
+  int failed_cluster=0;
+  double maxvel = HERGET_MAXVEL*SOLARDAY/AU_KM; // maxvel has units of AU/day
+  double timediff = 1.0;
   
   make_ivec(detnum, detusedvec); // All the entries are guaranteed to be 0.
 
@@ -46055,6 +46415,7 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
 
   // Launch master loop over all the input clusters.
   for(inclustct=0; inclustct<inclustnum; inclustct++) {
+    failed_cluster=0;
     onecluster = inclust[inclustct];
     if(inclustct!=onecluster.clusternum) {
       cerr << "ERROR: cluster index mismatch " << inclustct << " != " << onecluster.clusternum << " at input cluster " << inclustct << "\n";
@@ -46211,254 +46572,54 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
 	  cout << "Point " << i << ": " << obsMJD[i] << " " << obsRA[i] << " "  << obsDec[i] << " " << crosstrack[i] << " " << alongtrack[i] << "\n";
 	}
       }
-      if(config.verbose>=2) cout << "Cluster " << inclustct << " of " << inclustnum << " is good: ";
-      if(config.verbose>=2) cout << "\n";
-      if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << ": ";
-      chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
-      if(chisq>=LARGERR3) {
-	cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+      // Determine if the cluster is worth orbit-fitting with Hergetfit_vstar_chisq
+      failed_cluster=0;
+      maxvel = HERGET_MAXVEL*SOLARDAY/AU_KM; // maxvel has units of AU/day
+      timediff = obsMJD[ptnum-1] - obsMJD[0];
+      if(!isnormal(geodist1) || !isnormal(geodist2) || geodist1<=MINHERGETDIST || geodist2<=MINHERGETDIST || geodist1>=MAXORBDIST_AU || geodist2>=MAXORBDIST_AU) {
+	// The calculated geodist values are out of the (very generous) fitting range allowed by Hergetfit_vstar_chisq
+	failed_cluster=1;
+	if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster " << inclustct << " of " << inclustnum << " cannot be fit: out-of-range distances " << geodist1 << " and " << geodist2 << "\n";
       }
-      // orbit vector contains: semimajor axis [0], eccentricity [1],
-      // mjd at epoch [2], the state vectors [3-8], and the number of
-      // orbit evaluations (~iterations) required to reach convergence [9].
-
-      // Load a residual vector containing the contribution that each point makes to
-      // the chi-square value. This is needed to enable identification of the worst points.
-      resid = {};
-      for(ptct=0;ptct<ptnum;ptct++) resid.push_back(DSQUARE(crossresid[ptct]/crosstrack[ptct]) + DSQUARE(alongresid[ptct]/alongtrack[ptct]));
-      if(DIDNOT) {
-	for(ptct=0;ptct<ptnum;ptct++) {
-	  cout << "obs,calc,resid,uncert: " << obsMJD[ptct] << " " << obsRA[ptct] << " " << obsDec[ptct] << " " << fitRA[ptct] << " " << fitDec[ptct] << " " << crossresid[ptct] << " " << alongresid[ptct] << " " << crosstrack[ptct] << " " << alongtrack[ptct] << " " << resid[ptct] << "\n";
-	}
+      if(fabs(geodist2-geodist1)/timediff >= maxvel) {
+	// The radial velocity implied by the calculated geodist values is implausibly high
+	failed_cluster=1;
+	if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster " << inclustct << " of " << inclustnum << " cannot be fit: distances " << geodist1 << " and " << geodist2 << " with timediff " << timediff << " imply an unreasonably high velocity of " << fabs(geodist2-geodist1)/timediff*AU_KM/SOLARDAY << " km/sec\n";
       }
-      chisq /= double(ptnum); // Now it's the reduced chi square value
-      astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if crosstrack
-      // and alongtrack errors are all 1/sqrt(2.0) arcsec. Otherwise it's a measure of the
-      // RMS in units of the typical uncertainty.
-      if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
-
-      // If good, just write it out.
-      if(astromrms <= config.max_astrom_rms && istimedup==0) {
-	// CLUSTER IS GOOD
-	if(config.verbose>=1 || inclustct%1000==0) cout << "Writing out good cluster " << inclustct << "\n";
-	// Recalculate clustermetric
-	if(config.ptpow>=0 && config.nightpow>=0) {
-	  // Calculate the cluster metric normally
-	  clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
-	} else {
-	  // New option added April 16, 2025:
-	  // Setting config.ptpow or config.nightpow to any negative value
-	  // triggers a new sort of metric, equal to the products of all
-	  // the observations per night multiplied together.
-	  vector <int> obs_per_night;
-	  int obs_this_night=1;
-	  int first_obs_tonight=0;
-	  for(ptct=1;ptct<ptnum;ptct++) {
-	    if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
-	      // Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
-	      obs_this_night++;
-	    } else {
-	      // We've transitioned to a new night. Record the number of observations on the last night
-	      obs_per_night.push_back(obs_this_night);
-	      obs_this_night=1;
-	      first_obs_tonight=ptct;
-	    }
-	  }
-	  // Handle a final night
-	  obs_per_night.push_back(obs_this_night);
-	  clustmetric = double(obs_per_night[0]);
-	  for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
-	  clustmetric*=intpowD(onecluster.timespan,config.timepow);
+      if(failed_cluster==0) {
+	if(config.verbose>=2) cout << "Cluster " << inclustct << " of " << inclustnum << " is good: ";
+	if(config.verbose>=2) cout << "\n";
+	if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << ": ";
+	chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
+	if(chisq>=LARGERR3) {
+	  cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+	  if(config.verbose>=1 || inclustct%1000==0) cout << "Herget fit failed for cluster " << inclustct << " of " << inclustnum << "\n";
+	  failed_cluster=1;
 	}
-	// Include the astrometric RMS value in the cluster metric and the RMS vector
-	onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
-	onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
-	                                                                  // to dividing by the chi-square value rather than just
-	                                                                  // the astrometric RMS, which has the desireable effect of
-	                                                                  // prioritizing low astrometric error even more.
-	onecluster.orbit_a = orbit[0]/AU_KM;
-	onecluster.orbit_e = orbit[1];
-	statevec={};
-	for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
-	onecluster.orbit_incl = statevec2kep_incl(statevec);
-	onecluster.orbit_MJD = orbit[2];
-	onecluster.orbitX = orbit[3];
-	onecluster.orbitY = orbit[4];
-	onecluster.orbitZ = orbit[5];
-	onecluster.orbitVX = orbit[6];
-	onecluster.orbitVY = orbit[7];
-	onecluster.orbitVZ = orbit[8];
-	onecluster.orbit_eval_count = long(round(orbit[9]));
-	// Push new cluster on to holding vector holdclust
-	holdclust.push_back(onecluster);
-	clustindmat.push_back(clustind);
-      } else if((astromrms>config.max_astrom_rms || istimedup>0) && ptnum>config.minpointnum) {
-	// CLUSTER IS NOT GOOD, BUT MIGHT BE FIXABLE
-	if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points\n";
-	// Iteratively remove astrometric outliers, or remove time duplicates
-	// Setup for the main while loop:
-	rejnum = 0;
-	rejmax = config.rejfrac*ptnum;
-	if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
-	if(rejmax > config.maxrejnum) rejmax=config.maxrejnum; // Insurance policy against excessive runtimes in pathological cases.
-	// Main while loop, which iteratively removes outliers
-	while(rejnum<rejmax && ptnum>config.minpointnum) {
-	  if(astromrms>config.max_astrom_rms) {
-	    // The reason the cluster is not good is that the astrometric RMS is too high.
-	    // Identify the worst point.
-	    int wp=0;
-	    double wresid = resid[0];
-	    for(i=1;i<ptnum;i++) {
-	      if(resid[i]>wresid) {
-		wresid=resid[i];
-		wp = i;
-	      }
-	    }
-	    // Remove worst point from clusterdets and associated vectors
-	    clusterdets.erase(clusterdets.begin()+wp);
-	    obsMJD.erase(obsMJD.begin()+wp);
-	    obsRA.erase(obsRA.begin()+wp);
-	    obsDec.erase(obsDec.begin()+wp);
-	    crosstrack.erase(crosstrack.begin()+wp);
-	    alongtrack.erase(alongtrack.begin()+wp);
-	    observerpos.erase(observerpos.begin()+wp);
-	    ptnum--;
-	    rejnum++;
-	    if(long(obsMJD.size())!=ptnum) {
-	      cerr << "Vector trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
-	      return(9);
-	    }
-	    // Worst outlier rejected, ready for new round of orbit-fitting.
-	  } else if(astromrms <= config.max_astrom_rms && istimedup>0) {
-	    // The reason the cluster is not good is that it still contains
-	    // time-duplicates, even though the astrometric RMS is OK.
-	    vector <long> badpoints = {};
-	    for(ptct=1; ptct<ptnum; ptct++) {
-	      if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) {
-		// Points ptct-1 and ptct are time-duplicates.
-		// Mark for rejection whichever point has the larger RMS.
-		if(resid[ptct-1]>resid[ptct]) badpoints.push_back(ptct-1);
-		else badpoints.push_back(ptct);
-	      }
-	    }
-	    if(badpoints.size()<=0) {
-	      cerr << "ERROR: link_purify in duplicate-rejection loop, found no time-duplicates to reject\n";
-	    }
-	    // sort the badpoints vector
-	    sort(badpoints.begin(), badpoints.end());
-	    // Erase the bad points, starting from the end of the vectors
-	    for(i=long(badpoints.size()-1); i>=0; i--) {
-	      clusterdets.erase(clusterdets.begin()+badpoints[i]);
-	      obsMJD.erase(obsMJD.begin()+badpoints[i]);
-	      obsRA.erase(obsRA.begin()+badpoints[i]);
-	      obsDec.erase(obsDec.begin()+badpoints[i]);
-	      crosstrack.erase(crosstrack.begin()+badpoints[i]);
-	      alongtrack.erase(alongtrack.begin()+badpoints[i]);
-	      observerpos.erase(observerpos.begin()+badpoints[i]);
-	      ptnum--;
-	      rejnum++;
-	    }
-	    if(long(obsMJD.size())!=ptnum) {
-	      cerr << "Vector timedupe trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
-	      return(9);
-	    }
-	    // All time-duplicates rejected, ready for next round of orbit-fitting.
-	  } else {
-	    // This is a weird, illogical case, and probably the reason we got here
-	    // has to do with NANs. In any case, the cluster is very unlikely to be
-	    // salvageable.
-	    if(config.verbose>=1 || inclustct%1000==0) cout << "Weird cluster case, REJECTING\n";
-	    break; // Break out of the point-culling while loop, abandoning this cluster.
-	  }
-	  // Check if cluster is still valid
-	  // load vector of MJD steps
-	  mjdstep={};
-	  for(long i=1; i<ptnum; i++) mjdstep.push_back(obsMJD[i]-obsMJD[i-1]);
-	  // Count steps large enough to suggest a daytime period between nights.
-	  daysteps=0;	
-	  for(long i=0; i<long(mjdstep.size()); i++) {
-	    if(mjdstep[i]>NIGHTSTEP) daysteps++;
-	  }
-	  obsnights = daysteps+1;
-	  // Does cluster pass the criteria for a linked detection?
-	  if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
-	    // This cluster became invalid when we rejected the outlier(s).
-	    if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster became invalid, REJECTING\n";
-	    break; // Break out of point-culling while loop, since
-	           // this cluster is unredeemable.
-	  }
-	  // If we get here, rejection of the point didn't make the cluster invalid.
-	  // Begin analysis by loading new clustind vector.
-	  clustind = {};
-	  for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
-	  // Check for time-duplicates
-	  istimedup=0;
-	  for(ptct=1; ptct<ptnum; ptct++) {
-	    if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
-	  }
-	  // Use state vectors from previous fit to estimate beginning and ending geocentric distances.
-	  startpos.x = orbit[3];
-	  startpos.y = orbit[4];
-	  startpos.z = orbit[5];
-	  startvel.x = orbit[6];
-	  startvel.y = orbit[7];
-	  startvel.z = orbit[8];
-	  // Note that orbit[2] is MJD at the epoch.
-	  // Calculate position at first observation
-	  Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
-	  // Find vector relative to the observer by subtracting off the observer's position.
-	  endpos.x -= observerpos[0].x;
-	  endpos.y -= observerpos[0].y;
-	  endpos.z -= observerpos[0].z;
-	  geodist1 = vecabs3d(endpos)/AU_KM;
-	  // Calculate position at last observation
-	  Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
-	  endpos.x -= observerpos[ptnum-1].x;
-	  endpos.y -= observerpos[ptnum-1].y;
-	  endpos.z -= observerpos[ptnum-1].z;
-	  geodist2 = vecabs3d(endpos)/AU_KM;
-	    
-	  simplex_scale = SIMPLEX_SCALEFAC;
-	  if(config.verbose>=2) {
-	    cout << "Calling Hergetfit_vstar_chisq with dists " << geodist1 << " and " << geodist2 << "\n";
-	  }
-	  if(config.verbose>=2) {
-	    cout << "Launching Hergetfit_vstar_chisq for cluster " << inclustct << ":\n";
-	    for(i=0;i<=ptnum;i++) {
-	      cout << "Point " << i << ": " << obsMJD[i] << " " << obsRA[i] << " "  << obsDec[i] << " " << crosstrack[i] << " " << alongtrack[i] << "\n";
-	    }
-	  }
-	  if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << " minus " << rejnum << " outliers: ";
-	  chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
-	  if(chisq>=LARGERR3) {
-	    cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
-	  }
+	if(failed_cluster==0) {
 	  // orbit vector contains: semimajor axis [0], eccentricity [1],
 	  // mjd at epoch [2], the state vectors [3-8], and the number of
 	  // orbit evaluations (~iterations) required to reach convergence [9].
-	  
+
 	  // Load a residual vector containing the contribution that each point makes to
 	  // the chi-square value. This is needed to enable identification of the worst points.
 	  resid = {};
 	  for(ptct=0;ptct<ptnum;ptct++) resid.push_back(DSQUARE(crossresid[ptct]/crosstrack[ptct]) + DSQUARE(alongresid[ptct]/alongtrack[ptct]));
-      
+	  if(DIDNOT) {
+	    for(ptct=0;ptct<ptnum;ptct++) {
+	      cout << "obs,calc,resid,uncert: " << obsMJD[ptct] << " " << obsRA[ptct] << " " << obsDec[ptct] << " " << fitRA[ptct] << " " << fitDec[ptct] << " " << crossresid[ptct] << " " << alongresid[ptct] << " " << crosstrack[ptct] << " " << alongtrack[ptct] << " " << resid[ptct] << "\n";
+	    }
+	  }
 	  chisq /= double(ptnum); // Now it's the reduced chi square value
-	  astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if all the
-	  // crosstrack and alongtrack uncertainties are 1/sqrt(2). Otherwise it's a measure of the
+	  astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if crosstrack
+	  // and alongtrack errors are all 1/sqrt(2.0) arcsec. Otherwise it's a measure of the
 	  // RMS in units of the typical uncertainty.
-
 	  if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
-	  
-	  // Check if the astrometric RMS has dropped to the acceptable range,
-	  // and no time-duplicates remain.
+
+	  // If good, just write it out.
 	  if(astromrms <= config.max_astrom_rms && istimedup==0) {
-	    if(config.verbose>=1 || inclustct%1000==0) cout << "astromrms success: " << astromrms << " <= " << config.max_astrom_rms << ", dup=" << istimedup << ": writing out purified cluster " << inclustct << "\n";
-	    // CLUSTER HAS BEEN SUCCESSFULLY PURIFIED.
-	    // The cluster is good and should be written out.
-	    // Revise onecluster to reflect the deleted points
-	    onecluster.timespan = obsMJD[ptnum-1]-obsMJD[0];
-	    onecluster.uniquepoints = ptnum;
-	    onecluster.obsnights = obsnights;
+	    // CLUSTER IS GOOD
+	    if(config.verbose>=1 || inclustct%1000==0) cout << "Writing out good cluster " << inclustct << "\n";
 	    // Recalculate clustermetric
 	    if(config.ptpow>=0 && config.nightpow>=0) {
 	      // Calculate the cluster metric normally
@@ -46510,14 +46671,253 @@ int link_purify_chisq(const vector <hlimage> &image_log, const vector <hldet> &d
 	    // Push new cluster on to holding vector holdclust
 	    holdclust.push_back(onecluster);
 	    clustindmat.push_back(clustind);
-	    break; // Break out of point-culling while loop, since we have
-	           // successfully purified the cluster.
-	  } // Closes successful purification case.
-	  if((config.verbose>0 || inclustct%1000==0) && (rejnum>=rejmax || ptnum<=config.minpointnum)) cout << "Cluster became too small: REJECTED.\n";
-	} // Closes point-culling while loop.
-	// Close else if case that astrometric RMS was too high, the cluster needed purifying.
-      } else if (ptnum<=config.minpointnum) {
-	if(config.verbose>0 || inclustct%1000==0) cout << "Cluster is too small: REJECTED.\n";
+	  } else if((astromrms>config.max_astrom_rms || istimedup>0) && ptnum>config.minpointnum) {
+	    // CLUSTER IS NOT GOOD, BUT MIGHT BE FIXABLE
+	    if(config.verbose>=1 || inclustct%1000==0) cout << "Trying to purify cluster " << inclustct << " with " << ptnum << " points\n";
+	    // Iteratively remove astrometric outliers, or remove time duplicates
+	    // Setup for the main while loop:
+	    rejnum = 0;
+	    rejmax = config.rejfrac*ptnum;
+	    if(rejmax > ptnum-config.minpointnum) rejmax = ptnum - config.minpointnum;
+	    if(rejmax > config.maxrejnum) rejmax=config.maxrejnum; // Insurance policy against excessive runtimes in pathological cases.
+	    // Main while loop, which iteratively removes outliers
+	    while(rejnum<rejmax && ptnum>config.minpointnum && failed_cluster==0) {
+	      if(astromrms>config.max_astrom_rms) {
+		// The reason the cluster is not good is that the astrometric RMS is too high.
+		// Identify the worst point.
+		int wp=0;
+		double wresid = resid[0];
+		for(i=1;i<ptnum;i++) {
+		  if(resid[i]>wresid) {
+		    wresid=resid[i];
+		    wp = i;
+		  }
+		}
+		// Remove worst point from clusterdets and associated vectors
+		clusterdets.erase(clusterdets.begin()+wp);
+		obsMJD.erase(obsMJD.begin()+wp);
+		obsRA.erase(obsRA.begin()+wp);
+		obsDec.erase(obsDec.begin()+wp);
+		crosstrack.erase(crosstrack.begin()+wp);
+		alongtrack.erase(alongtrack.begin()+wp);
+		observerpos.erase(observerpos.begin()+wp);
+		ptnum--;
+		rejnum++;
+		if(long(obsMJD.size())!=ptnum) {
+		  cerr << "Vector trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+		  return(9);
+		}
+		// Worst outlier rejected, ready for new round of orbit-fitting.
+	      } else if(astromrms <= config.max_astrom_rms && istimedup>0) {
+		// The reason the cluster is not good is that it still contains
+		// time-duplicates, even though the astrometric RMS is OK.
+		vector <long> badpoints = {};
+		for(ptct=1; ptct<ptnum; ptct++) {
+		  if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) {
+		    // Points ptct-1 and ptct are time-duplicates.
+		    // Mark for rejection whichever point has the larger RMS.
+		    if(resid[ptct-1]>resid[ptct]) badpoints.push_back(ptct-1);
+		    else badpoints.push_back(ptct);
+		  }
+		}
+		if(badpoints.size()<=0) {
+		  cerr << "ERROR: link_purify in duplicate-rejection loop, found no time-duplicates to reject\n";
+		}
+		// sort the badpoints vector
+		sort(badpoints.begin(), badpoints.end());
+		// Erase the bad points, starting from the end of the vectors
+		for(i=long(badpoints.size()-1); i>=0; i--) {
+		  clusterdets.erase(clusterdets.begin()+badpoints[i]);
+		  obsMJD.erase(obsMJD.begin()+badpoints[i]);
+		  obsRA.erase(obsRA.begin()+badpoints[i]);
+		  obsDec.erase(obsDec.begin()+badpoints[i]);
+		  crosstrack.erase(crosstrack.begin()+badpoints[i]);
+		  alongtrack.erase(alongtrack.begin()+badpoints[i]);
+		  observerpos.erase(observerpos.begin()+badpoints[i]);
+		  ptnum--;
+		  rejnum++;
+		}
+		if(long(obsMJD.size())!=ptnum) {
+		  cerr << "Vector timedupe trim count error: " << obsMJD.size() << "!=" << ptnum << "\n";
+		  return(9);
+		}
+		// All time-duplicates rejected, ready for next round of orbit-fitting.
+	      } else {
+		// This is a weird, illogical case, and probably the reason we got here
+		// has to do with NANs. In any case, the cluster is very unlikely to be
+		// salvageable.
+		if(config.verbose>=1 || inclustct%1000==0) cout << "Weird cluster case, REJECTING\n";
+		break; // Break out of the point-culling while loop, abandoning this cluster.
+	      }
+	      // Check if cluster is still valid
+	      // load vector of MJD steps
+	      mjdstep={};
+	      for(long i=1; i<ptnum; i++) mjdstep.push_back(obsMJD[i]-obsMJD[i-1]);
+	      // Count steps large enough to suggest a daytime period between nights.
+	      daysteps=0;	
+	      for(long i=0; i<long(mjdstep.size()); i++) {
+		if(mjdstep[i]>NIGHTSTEP) daysteps++;
+	      }
+	      obsnights = daysteps+1;
+	      // Does cluster pass the criteria for a linked detection?
+	      if(obsnights < config.minobsnights || ptnum < config.minpointnum) {
+		// This cluster became invalid when we rejected the outlier(s).
+		if(config.verbose>=1 || inclustct%1000==0) cout << "Cluster became invalid, REJECTING\n";
+		break; // Break out of point-culling while loop, since
+		       // this cluster is unredeemable.
+	      }
+	      // If we get here, rejection of the point didn't make the cluster invalid.
+	      // Begin analysis by loading new clustind vector.
+	      clustind = {};
+	      for(i=0;i<ptnum;i++) clustind.push_back(clusterdets[i].index);
+	      // Check for time-duplicates
+	      istimedup=0;
+	      for(ptct=1; ptct<ptnum; ptct++) {
+		if(clusterdets[ptct-1].MJD == clusterdets[ptct].MJD && stringnmatch01(clusterdets[ptct-1].obscode,clusterdets[ptct].obscode,3)==0) istimedup=1;
+	      }
+	      // Use state vectors from previous fit to estimate beginning and ending geocentric distances.
+	      startpos.x = orbit[3];
+	      startpos.y = orbit[4];
+	      startpos.z = orbit[5];
+	      startvel.x = orbit[6];
+	      startvel.y = orbit[7];
+	      startvel.z = orbit[8];
+	      // Note that orbit[2] is MJD at the epoch.
+	      // Calculate position at first observation
+	      Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[0], endpos, endvel, config.verbose);
+	      // Find vector relative to the observer by subtracting off the observer's position.
+	      endpos.x -= observerpos[0].x;
+	      endpos.y -= observerpos[0].y;
+	      endpos.z -= observerpos[0].z;
+	      geodist1 = vecabs3d(endpos)/AU_KM;
+	      // Calculate position at last observation
+	      Kepler_univ_int(GMSUN_KM3_SEC2, orbit[2], startpos, startvel, obsMJD[ptnum-1], endpos, endvel, config.verbose);
+	      endpos.x -= observerpos[ptnum-1].x;
+	      endpos.y -= observerpos[ptnum-1].y;
+	      endpos.z -= observerpos[ptnum-1].z;
+	      geodist2 = vecabs3d(endpos)/AU_KM;
+	      
+	      maxvel = HERGET_MAXVEL*SOLARDAY/AU_KM; // maxvel has units of AU/day
+	      timediff = obsMJD[ptnum-1] - obsMJD[0];
+	      if(!isnormal(geodist1) || !isnormal(geodist2) || geodist1<=MINHERGETDIST || geodist2<=MINHERGETDIST || geodist1>=MAXORBDIST_AU || geodist2>=MAXORBDIST_AU) {
+		// The calculated geodist values are out of the (very generous) fitting range allowed by Hergetfit_vstar_chisq
+		failed_cluster=1;
+		if(config.verbose>=1 || inclustct%1000==0) cout << "Partially culled cluster " << inclustct << " of " << inclustnum << " cannot be fit: out-of-range distances " << geodist1 << " and " << geodist2 << "\n";
+		break;
+	      }
+	      if(fabs(geodist2-geodist1)/timediff >= maxvel) {
+		// The radial velocity implied by the calculated geodist values is implausibly high
+		failed_cluster=1;
+		if(config.verbose>=1 || inclustct%1000==0) cout << "Partially culled cluster " << inclustct << " of " << inclustnum << " cannot be fit: distances " << geodist1 << " and " << geodist2 << " with timediff " << timediff << " imply an unreasonably high velocity of " << fabs(geodist2-geodist1)/timediff*AU_KM/SOLARDAY << " km/sec\n";
+		break;
+	      }
+	      simplex_scale = SIMPLEX_SCALEFAC;
+	      if(config.verbose>=2) {
+		cout << "Calling Hergetfit_vstar_chisq with dists " << geodist1 << " and " << geodist2 << "\n";
+	      }
+	      if(config.verbose>=2) {
+		cout << "Launching Hergetfit_vstar_chisq for cluster " << inclustct << ":\n";
+		for(i=0;i<=ptnum;i++) {
+		  cout << "Point " << i << ": " << obsMJD[i] << " " << obsRA[i] << " "  << obsDec[i] << " " << crosstrack[i] << " " << alongtrack[i] << "\n";
+		}
+	      }
+	      if(config.verbose>=1 || inclustct%1000==0) cout << "Fitting cluster " << inclustct << " of " << inclustnum << " minus " << rejnum << " outliers: ";
+	      chisq = Hergetfit_vstar_chisq(geodist1, geodist2, simplex_scale, config.simptype, ftol, 1, ptnum, observerpos, observervel, obsMJD, obsRA, obsDec, crosstrack, alongtrack, config.ecc_penalty, fitRA, fitDec, crossresid, alongresid, orbit, config.verbose);
+	      if(chisq>=LARGERR3) {
+		cerr << "WARNING: Hergetfit_vstar_chisq() returned error code on input " << geodist1 << ", " << geodist2 << "\n";
+		if(config.verbose>=1 || inclustct%1000==0) cout << "Herget fit failed for partially culled cluster " << inclustct << " of " << inclustnum << "\n";
+		failed_cluster=1;
+		break;
+	      }
+	      // orbit vector contains: semimajor axis [0], eccentricity [1],
+	      // mjd at epoch [2], the state vectors [3-8], and the number of
+	      // orbit evaluations (~iterations) required to reach convergence [9].
+	  
+	      // Load a residual vector containing the contribution that each point makes to
+	      // the chi-square value. This is needed to enable identification of the worst points.
+	      resid = {};
+	      for(ptct=0;ptct<ptnum;ptct++) resid.push_back(DSQUARE(crossresid[ptct]/crosstrack[ptct]) + DSQUARE(alongresid[ptct]/alongtrack[ptct]));
+      
+	      chisq /= double(ptnum); // Now it's the reduced chi square value
+	      astromrms = sqrt(chisq); // This gives the actual astrometric RMS in arcseconds if all the
+	      // crosstrack and alongtrack uncertainties are 1/sqrt(2). Otherwise it's a measure of the
+	      // RMS in units of the typical uncertainty.
+
+	      if(config.verbose>=1 || inclustct%1000==0) cout << " astromrms = " << astromrms << " arcsec, dup=" << istimedup << "\n";
+	  
+	      // Check if the astrometric RMS has dropped to the acceptable range,
+	      // and no time-duplicates remain.
+	      if(astromrms <= config.max_astrom_rms && istimedup==0 && failed_cluster==0) {
+		if(config.verbose>=1 || inclustct%1000==0) cout << "astromrms success: " << astromrms << " <= " << config.max_astrom_rms << ", dup=" << istimedup << ": writing out purified cluster " << inclustct << "\n";
+		// CLUSTER HAS BEEN SUCCESSFULLY PURIFIED.
+		// The cluster is good and should be written out.
+		// Revise onecluster to reflect the deleted points
+		onecluster.timespan = obsMJD[ptnum-1]-obsMJD[0];
+		onecluster.uniquepoints = ptnum;
+		onecluster.obsnights = obsnights;
+		// Recalculate clustermetric
+		if(config.ptpow>=0 && config.nightpow>=0) {
+		  // Calculate the cluster metric normally
+		  clustmetric = intpowD(double(onecluster.uniquepoints),config.ptpow)*intpowD(double(onecluster.obsnights),config.nightpow)*intpowD(onecluster.timespan,config.timepow);
+		} else {
+		  // New option added April 16, 2025:
+		  // Setting config.ptpow or config.nightpow to any negative value
+		  // triggers a new sort of metric, equal to the products of all
+		  // the observations per night multiplied together.
+		  vector <int> obs_per_night;
+		  int obs_this_night=1;
+		  int first_obs_tonight=0;
+		  for(ptct=1;ptct<ptnum;ptct++) {
+		    if((clusterdets[ptct].MJD-clusterdets[ptct-1].MJD)<NIGHTSTEP && (clusterdets[ptct].MJD-clusterdets[first_obs_tonight].MJD)<1.0) {
+		      // Detection ptct is on the same night as ptct-1. Augment the count of observations for this night.
+		      obs_this_night++;
+		    } else {
+		      // We've transitioned to a new night. Record the number of observations on the last night
+		      obs_per_night.push_back(obs_this_night);
+		      obs_this_night=1;
+		      first_obs_tonight=ptct;
+		    }
+		  }
+		  // Handle a final night
+		  obs_per_night.push_back(obs_this_night);
+		  clustmetric = double(obs_per_night[0]);
+		  for(i=1;i<long(obs_per_night.size());i++) clustmetric*=double(obs_per_night[i]);
+		  clustmetric*=intpowD(onecluster.timespan,config.timepow);
+		}
+		// Include the astrometric RMS value in the cluster metric and the RMS vector
+		onecluster.astromRMS = astromrms; // rmsvec[3]: astrometric rms in arcsec.
+		onecluster.metric = clustmetric/intpowD(astromrms,config.rmspow); // Under the default value rmspow=2, this is equivalent
+	                                                                          // to dividing by the chi-square value rather than just
+	                                                                          // the astrometric RMS, which has the desireable effect of
+	                                                                          // prioritizing low astrometric error even more.
+		onecluster.orbit_a = orbit[0]/AU_KM;
+		onecluster.orbit_e = orbit[1];
+		statevec={};
+		for(i=0;i<6;i++) statevec.push_back(orbit[3+i]);
+		onecluster.orbit_incl = statevec2kep_incl(statevec);
+		onecluster.orbit_MJD = orbit[2];
+		onecluster.orbitX = orbit[3];
+		onecluster.orbitY = orbit[4];
+		onecluster.orbitZ = orbit[5];
+		onecluster.orbitVX = orbit[6];
+		onecluster.orbitVY = orbit[7];
+		onecluster.orbitVZ = orbit[8];
+		onecluster.orbit_eval_count = long(round(orbit[9]));
+		// Push new cluster on to holding vector holdclust
+		holdclust.push_back(onecluster);
+		clustindmat.push_back(clustind);
+		break; // Break out of point-culling while loop, since we have
+	               // successfully purified the cluster.
+	      } // Closes successful purification case.
+	      if((config.verbose>0 || inclustct%1000==0) && (rejnum>=rejmax || ptnum<=config.minpointnum)) cout << "Cluster became too small: REJECTED.\n";
+	    } // Closes point-culling while loop.
+	    // Close else if case that astrometric RMS was too high, the cluster needed purifying.
+	  } else if (ptnum<=config.minpointnum) {
+	    if(config.verbose>0 || inclustct%1000==0) cout << "Cluster is too small: REJECTED.\n";
+	  }
+	  // Closes case of failed_cluster=1 from initial Herget fit
+	}
+	// Closes case of failed_cluster=1 from unreasonable geodist1 and geodist2 values that could not be fed to Herget fitting
       }
     } // Closes initial if case that physical RMS is too high, cluster is rejected immediately.
   } // Closes loop on input cluster arrays.
@@ -57278,3 +57678,6 @@ int unpack_objstring(string packstring, string &unpackstring) {
   else unpackstring = to_string(year) + " " + letterstring;
   return(0);
 }
+
+
+

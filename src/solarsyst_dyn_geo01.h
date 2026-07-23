@@ -126,6 +126,12 @@ using namespace std;
                               // shrink the distances by this factor to see if you can bring them in range.
 #define MINHERGETDIST 0.000001L // Make sure distances and distance separations in Herget
                               // orbit fitting don't get smaller than this value (in AU).
+#define MAXORBDIST_AU 10000.0 // Ten thousand AU: max valid distance in an orbit-fit.
+#define MAXORBDIST_KM 1.495978700e12L // Ten thousand AU in km: max valid distance in an orbit-fit.
+#define LARGE_HERGET_DIST 40.0 // Value in AU to which too-large distances in Herget fit will be reset.
+#define DEFAULT_HERGET_DIST 1.0 // Value in AU to which too-small distances in Herget fit will be reset.
+#define SMALL_HERGET_DIST 0.01 // Value in AU to which too-small distances in Herget fit will be reset.
+#define HERGET_MAXVEL 250.0 // Maximum implied radial velocity in km/s for Herget fit.
 #define SIMPLEX_SCALEFAC 0.2L // Initial scaling for Herget simplex. For input guess x, y points will be
                               // x ( 1 + SIMPLEX_SCALEFAC - SIMPLEX_SCALEFACE^2),
                               // y ( 1 + SIMPLEX_SCALEFAC + SIMPLEX_SCALEFACE^2) and
@@ -181,6 +187,9 @@ using namespace std;
                               // in seconds, are implausible and will cause link_refine_Herget
                               // to exit with an error.
 // End parameters related to heliolinc clustering
+#define MAXTANVELCUT 50.0 // Maximum value that can be placed on the minimum tangential velocity in km/sec
+                          // for a valid tracklet in heliolinc. Note that setting it anywhere near
+                          // this would reject almost all tracklets.
 
 // Begin set or parameters related to the Everhart (1974) integrator
 #define h3_1 0.0l
@@ -334,8 +343,8 @@ public:
   float trail_len;  // In arcseconds. Use zero unless object is certainly trailed.
   float trail_PA;   // In degrees. Default to 90 deg for un-trailed sources.
   float sigmag;
-  float sig_across; // Astrometric uncertainty cross-trail (or in RA for untrailed sources), in arcsec
-  float sig_along;  // Astrometric uncertainty cross-trail (or in Dec for untrailed sources), in arcsec
+  float sig_across; // Astrometric uncertainty cross-trail (or in Dec for untrailed sources), in arcsec
+  float sig_along;  // Astrometric uncertainty along-trail (or in RA for untrailed sources), in arcsec
   int image;        // Vitally important index to image catalog.
   char idstring[SHORTSTRINGLEN];  // E.g., diaSourceID
   char band[MINSTRINGLEN];        // photometric band
@@ -1808,6 +1817,7 @@ int Stumpff_func_cf(const double xc, double *c0, double *c1, double *c2, double 
 int Keplerint(const long double MGsun, const long double mjdstart, const point3LD &startpos, const point3LD &startvel, const long double mjdend, point3LD &endpos, point3LD &endvel);
 int Keplerint(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
 int Kepler_fg_func_int(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
+int Kepler_fg_func_int_Ryder_Halley(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel);
 int Kepler_fg_func_vec(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const vector <double> &mjdvec, vector <point3d> &outpos, vector <point3d> &outvel);
 int Kepler_univ_int(const double MGsun, const double mjdstart, const point3d &startpos, const point3d &startvel, const double mjdend, point3d &endpos, point3d &endvel, int verbose);
 int Kepler_univ_int_SV(const double MGsun, const double mjdstart, const vector <double> &starting_statevec, const double mjdend, vector <double> &out_statevec, int verbose);
@@ -1901,12 +1911,14 @@ long double Hergetchi01(long double geodist1, long double geodist2, int Hergetpo
 double Hergetchi01(double geodist1, double geodist2, int Hergetpoint1, int Hergetpoint2, const vector <point3d> &observerpos, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid, vector <double> &orbit, int verbose);
 double Hergetchi_vstar(double geodist1, double geodist2, int Hergetpoint1, int Hergetpoint2, const vector <point3d> &observerpos, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid, vector <double> &orbit, int verbose);
 double Hergetchi_vstarSV(double geodist1, double geodist2, int Hergetpoint1, int Hergetpoint2, const vector <vector <double>> &observerpos, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid, vector <double> &out_statevec, double &stateMJD, int verbose);
+int Herget_guess_fix(double distance_guesses[2], double timediff, long &num_notnormal, long &num_smalldist, long &num_largedist, long &num_velcor, long whichpoint);
 double Hergetfit_vstar_chisq(double geodist1, double geodist2, double simplex_scale, int simptype, double ftol, int point1, int point2, const vector <point3d> &observerpos, const vector <point3d> &observervel, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &crosstrack, const vector <double> &alongtrack, double ecc_penalty, vector <double> &fitRA, vector <double> &fitDec, vector <double> &crossresid, vector <double> &alongresid, vector <double> &orbit, int verbose);
 int statevec2kep_easy(const double MGsun, vector <double> &statevec, double &a, double &e, double &incl);
 double statevec2kep_incl(const vector <double> &statevec);
 int posvel2kep_easy(const double MGsun, point3d objpos, point3d objvel, double &a, double &e, double &incl);
 int Herget_simplex_int(long double geodist1, long double geodist2, long double simpscale, long double simplex[3][2], int simptype);
 int Herget_simplex_int(double geodist1, double geodist2, double simpscale, double simplex[3][2], int simptype);
+int Herget_simplex_check(double simplex[3][2]);
 long double Hergetfit01(long double geodist1, long double geodist2, long double simplex_scale, int simptype, long double ftol, int point1, int point2, const vector <point3LD> &observerpos, const vector <long double> &obsMJD, const vector <long double> &obsRA, const vector <long double> &obsDec, const vector <long double> &sigastrom, vector <long double> &fitRA, vector <long double> &fitDec, vector <long double> &resid, vector <long double> &orbit, int verbose);
 double Hergetfit_vstar(double geodist1, double geodist2, double simplex_scale, int simptype, double ftol, int point1, int point2, const vector <point3d> &observerpos, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, double ecc_penalty, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid, vector <double> &orbit, int verbose);
 double Hergetfit_vstarSV(double geodist1, double geodist2, double simplex_scale, int simptype, double ftol, int point1, int point2, const vector <vector <double>> &observerpos, const vector <double> &obsMJD, const vector <double> &obsRA, const vector <double> &obsDec, const vector <double> &sigastrom, vector <double> &fitRA, vector <double> &fitDec, vector <double> &resid, vector <double> &out_statevec, double &stateMJD, long &itnum, int verbose);
@@ -1916,6 +1928,7 @@ int wrap_Hergetfit01(double simplex_scale, int simptype, double ftol, int point1
 int wrap_Hergetfit02(double simplex_scale, int simptype, double ftol, const vector <vector <point3d>> &observerpos, const vector <vector <double>> &obsMJD, const vector <vector <double>> &obsRA, const vector <vector <double>> &obsDec, const vector <vector <double>> &sigastrom, double MJDref, int rmspow, int verbose, vector <hlclust> &outclust, int threadct);
 int wrap_Hergetfit_vstar(double simplex_scale, int simptype, double ftol, const vector <vector <point3d>> &observerpos, const vector <vector <double>> &obsMJD, const vector <vector <double>> &obsRA, const vector <vector <double>> &obsDec, const vector <vector <double>> &sigastrom, double MJDref, int rmspow, int verbose, vector <hlclust> &outclust, int threadct);
 double MPCcal2MJD(int year, int month, double day);
+double cal2MJD(int year, int month, int day, int hour, int minute, double second);
 int mpc80_parseline(const string &lnfromfile, string &object, double *MJD, double *RA, double *Dec, double *mag, string &band, string &obscode);
 double mpc80_mjd(const string &lnfromfile);
 int read_obscode_file(string obscodefile,  vector <observatory> &observatory_list);

@@ -421,8 +421,8 @@ int main(int argc, char *argv[])
 	outstream1  << fixed << setprecision(6) << "        <dec>" << clustvec[i].Dec << "</dec>\n";
 	outstream1  << "        <astCat>Gaia2</astCat>\n";
 	if(clustvec[i].sig_across>0 && clustvec[i].sig_along>0) {
-	  // outstream1  << fixed << setprecision(3) << "        <rmsRA>" << clustvec[i].sig_across << "</rmsRA>\n";
-	  // outstream1  << fixed << setprecision(3) << "        <rmsDec>" << clustvec[i].sig_along << "</rmsDec>\n";
+	  // outstream1  << fixed << setprecision(3) << "        <rmsRA>" << clustvec[i].sig_along << "</rmsRA>\n";
+	  // outstream1  << fixed << setprecision(3) << "        <rmsDec>" << clustvec[i].sig_across << "</rmsDec>\n";
 	}
 	outstream1  << fixed << setprecision(3) << "        <mag>" << clustvec[i].mag << "</mag>\n";
 	// outstream1  << fixed << setprecision(3) << "        <rmsMag>" << clustvec[i].sigmag << "</rmsMag>\n";
