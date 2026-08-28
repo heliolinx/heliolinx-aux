@@ -27,7 +27,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: hypsim02a -cfg configfile -ranseed random_number_seed -times timefile -hyp hypothesis_file -unbound 0 -mjdref mjdref -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -maglim limiting_magnitude -Hmin min_Hmag -Hmax max_Hmag -Hslope Hmag_powerlaw_slope -simnum simnum -outfile outfile \n";
+  cerr << "Usage: hypsim02a -cfg configfile -ranseed random_number_seed -times timefile -hyp hypothesis_file -unbound 0 -mjdref mjdref -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -maglim limiting_magnitude -Hmin min_Hmag -Hmax max_Hmag -Hslope Hmag_powerlaw_slope -minsunelong minimum_solar_elongation(deg) -phasex  min_excluded_phase max_excluded_phase -simnum simnum -outfile outfile \n";
 }
     
 int main(int argc, char *argv[])
@@ -105,6 +105,7 @@ int main(int argc, char *argv[])
   point3LD startvel = point3LD(0,0,0);
   long double outRA,outDec;
   long double a,e,incl,phaseang,cosphase,sunelong;
+  double minsunelong = 45.0l;
   ofstream outstream1;
   long double astromsigma=0.1L;
   string seedstring;
@@ -119,6 +120,9 @@ int main(int argc, char *argv[])
   double limiting_mag = 0.0l;
   double x,xmin,xmax,acoef,absmag,obsmag,phi1,phi2;
   long double phaseslope = PHASE_G;
+  double phasex_min = 1000.0;
+  double phasex_max = -1000.0;
+    
 
   if(argc<15) {
     show_usage();
@@ -439,6 +443,37 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-minsunelong" || string(argv[i]) == "-minelong" || string(argv[i]) == "-minse") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	minsunelong=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Minimum solar elongation keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-phasex") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	phasex_min=stod(argv[++i]);
+      }
+      else {
+	cerr << "Excluded phase regime keyword supplied with no corresponding arguments\n";
+	show_usage();
+	return(1);
+      }
+      if(i+1 < argc) {
+	//There is still something to read;
+	phasex_max=stod(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Excluded phase regime keyword supplied with one arguments when two are required\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-simnum" || string(argv[i]) == "-sn" || string(argv[i]) == "-snum" || string(argv[i]) == "--simnum") {
       if(i+1 < argc) {
         //There is still something to read;
@@ -474,6 +509,8 @@ int main(int argc, char *argv[])
   cout << "input hypothesis file " << hypfile << "\n";
   cout << "input starting MJD " << mjdstart << "\n";
   cout << "input ending MJD " << mjdstart << "\n";
+  cout << "excluded phase range: " << phasex_min << " deg to " << phasex_max << " deg\n";
+  cout << "min solar elongation: " << minsunelong << " deg\n";
   cout << "1-D Gaussian error added to output astrometry: " << astromsigma << " arcsec\n";
   cout << "number of encounters to simulate per hypothesis: " << simnum << "\n";
   cout << "output file " << outfile << "\n";
@@ -723,7 +760,22 @@ int main(int argc, char *argv[])
 	  //cout << "obsmag = " << obsmag << " ";
 	  obsmag -= 2.5*log10((1.0-phaseslope)*phi1 + phaseslope*phi2);
 	  //cout << "becomes obsmag = " << obsmag << "\n";
+	  // Also calculate solar elongation, while we have the values handy
+	  obs_to_sun.x = Sunposnow.x - observerpos[timect].x;
+	  obs_to_sun.y = Sunposnow.y - observerpos[timect].y;
+	  obs_to_sun.z = Sunposnow.z - observerpos[timect].z;
+	  obsfromsun = vecabs3LD(obs_to_sun);
+	  cosphase = dotprod3LD(obs_to_targ,obs_to_sun)/obsfromsun; // obs_to_targ was normalized already.
+	  if(cosphase>1.0L) {
+	    cout << "WARNING: trying to take arccos of 1.0 + " << cosphase-1.0L << "\n";
+	    sunelong=0.0L;
+	  } else if(cosphase<-1.0L) {
+	    cout << "WARNING: trying to take arccos of -1.0 - " << cosphase+1.0L << "\n";
+	    sunelong=M_PI;
+	  } else sunelong = acos(cosphase);
 	  if(obsmag>limiting_mag) goodobject=0; // Too faint, due to phase effects
+	  if(phaseang*DEGPRAD>phasex_min && phaseang*DEGPRAD<phasex_max) goodobject=0; // Too faint, due to phase effects
+	  if(sunelong*DEGPRAD<minsunelong) goodobject=0;
 	}
       }
       if(goodobject==1) {

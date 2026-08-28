@@ -278,7 +278,7 @@ int main(int argc, char *argv[])
   }
   
   outstream1.open(outfile);
-  outstream1 << "#delta_lambda(deg) lambda_vel(deg/day) lambda_vel(deg/day^2)\n";
+  outstream1 << "#delta_lambda(deg) lambda_vel(deg/day) lambda_acc(deg/day^2)\n";
   delta_lambda = mindist;
   while(delta_lambda<=maxdist && stepct<=STEPMAX) {
     if(delta_lambda<distvec[0]) {

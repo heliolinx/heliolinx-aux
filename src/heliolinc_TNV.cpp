@@ -1,3 +1,6 @@
+// heliolinc_TNV: First prototype implementation using Ben
+// Engebreth's concept of SAD (Swept Angle Discrepancy) tracklets.
+//
 // Implements in C++ (with some modifications) the Heliolinc3D
 // algorithm developed by Siegfried Eggl, which in turn was based
 // on the original HelioLinC algorithm developed by Matthew Holman
@@ -180,9 +183,9 @@
 
 static void show_usage()
 {
-  cerr << "Usage: heliolinc_omp -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -verbose verbosity\n";
+  cerr << "Usage: heliolinc_TNV -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -mjd mjdref -autorun 1=yes_auto-generate_MJDref -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file -clustrad clustrad -clustchangerad min_distance_for_cluster_scaling -npt dbscan_npt -minobsnights minobsnights -mintimespan mintimespan -mingeodist minimum_geocentric_distance -maxgeodist maximum_geocentric_distance -geologstep logarithmic_step_size_for_geocentric_distance_bins -mingeoobs min_geocentric_dist_at_observation(AU) -minimpactpar min_impact_parameter(km) -useunivar 1_for_univar_0_for_fgfunc -vinf max_v_inf  -outsum summary_file -clust2det clust2detfile -tanveltol tanveltol -veltol_changerad veltol_changerad -verbose verbosity\n";
   cerr << "\nor, at minimum:\n\n";
-  cerr << "heliolinc_omp -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
+  cerr << "heliolinc_TNV -imgs imfile -pairdets paired detection file -tracklets tracklet file -trk2det tracklet-to-detection file -obspos observer_position_file -heliodist heliocentric_dist_vel_acc_file\n";
   cerr << "\nNote that the minimum invocation leaves some things set to defaults\n";
   cerr << "that you may well wish to specify: in particular, the output file names\n";
   
@@ -208,12 +211,14 @@ int main(int argc, char *argv[])
   int default_geologstep,default_clust2detfile,default_sumfile;
   int default_mingeoobs, default_minimpactpar;
   int default_use_univar, default_max_v_inf;
+  int default_tanveltol, default_veltol_changerad;
   default_clustrad = default_clustchangerad = default_npt = default_minobsnights = 1;
   default_mintimespan = 1;
   default_mingeodist = default_maxgeodist = default_geologstep = 1;
   default_clust2detfile = default_sumfile = 1;
   default_mingeoobs = default_minimpactpar = 1;
   default_use_univar = default_max_v_inf = 1;
+  default_tanveltol = default_veltol_changerad = 1;
   ofstream outstream1;
   long i=0;
   long clustct=0;
@@ -454,6 +459,30 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
+    } else if(string(argv[i]) == "-tanveltol" || string(argv[i]) == "-veltol" || string(argv[i]) == "-tanvel") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	config.tanveltol=stod(argv[++i]);
+	default_tanveltol = 0;
+	i++;
+      }
+      else {
+	cerr << "Tangential velocity tolerance keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-veltol_changerad" || string(argv[i]) == "-vel_changerad" || string(argv[i]) == "-veltol_changerad") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	config.veltol_changerad=stod(argv[++i]);
+	default_veltol_changerad = 0;
+	i++;
+      }
+      else {
+	cerr << "Velocity tolerance changerad keyword supplied with no corresponding argument\n";
+	show_usage();
+	return(1);
+      }
     } else if(string(argv[i]) == "-verbose" || string(argv[i]) == "-verb" || string(argv[i]) == "-VERBOSE" || string(argv[i]) == "-VERB" || string(argv[i]) == "--verbose" || string(argv[i]) == "--VERBOSE" || string(argv[i]) == "--VERB") {
       if(i+1 < argc) {
 	//There is still something to read;
@@ -586,6 +615,10 @@ int main(int argc, char *argv[])
   else cout << "Using f and g functions for Keplerian integration\n";
   if(default_max_v_inf==1) cout << "Defaulting to maximum v_inf relative to the sun = " << config.max_v_inf << " km/sec\n";
   else cout << "Maximum v_inf relative to the sun is " << config.max_v_inf << " km\n";
+  if(default_tanveltol==1) cout << "Defaulting to tangential velocity tolerance = " << config.tanveltol << " km/sec\n";
+  else cout << "Tangential velocity tolerance is " << config.tanveltol << " km\n";
+  if(default_veltol_changerad==1) cout << "Defaulting to veltol_changerad = " << config.veltol_changerad << " AU\n";
+  else cout << "veltol_changerad is " << config.veltol_changerad << " km\n";
   if(default_sumfile==1) cout << "WARNING: using default name " << sumfile << " for summary output file\n";
   else cout << "summary output file " << sumfile << "\n";
   if(default_clust2detfile==1) cout << "WARNING: using default name " << clust2detfile << " for output clust2det file\n";
@@ -665,16 +698,15 @@ int main(int argc, char *argv[])
    return(1);
   }
   cout << "Read " << trk2det.size() << " data lines from trk2det file " << trk2detfile << "\n";
-
-  status=heliolinc_omp_all(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outclust, clust2det);
+  status=heliolinc_alg_TNV(image_log, detvec, tracklets, trk2det, radhyp, earthpos, config, outclust, clust2det);
   if(status!=0) {
-    cerr << "ERROR: heliolinc_alg_all failed with status " << status << "\n";
+    cerr << "ERROR: heliolinc_alg_TNV failed with status " << status << "\n";
     return(status);
   } 
   
   outstream1.open(sumfile);
   cout << "Writing " << outclust.size() << " lines to output cluster-summary file " << sumfile << "\n";
-  outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
+  outstream1 << "#clusternum,posRMS,velRMS,totRMS,astromRMS,pairnum,timespan,uniquepoints,obsnights,metric,rating,reference_MJD,heliohyp0,heliohyp1,heliohyp2,posX,posY,posZ,velX,velY,velZ,orbit_a,orbit_e,orbit_incl,orbit_MJD,orbitX,orbitY,orbitZ,orbitVX,orbitVY,orbitVZ,orbit_eval_count\n";
   for(clustct=0 ; clustct<long(outclust.size()); clustct++) {
     outstream1 << fixed << setprecision(3) << outclust[clustct].clusternum << "," << outclust[clustct].posRMS << "," << outclust[clustct].velRMS << "," << outclust[clustct].totRMS << ",";
     outstream1 << fixed << setprecision(4) << outclust[clustct].astromRMS << ",";
@@ -682,7 +714,7 @@ int main(int argc, char *argv[])
     outstream1 << fixed << setprecision(6) << outclust[clustct].reference_MJD << "," << outclust[clustct].heliohyp0 << "," << outclust[clustct].heliohyp1 << "," << outclust[clustct].heliohyp2 << ",";
     outstream1 << fixed << setprecision(1) << outclust[clustct].posX << "," << outclust[clustct].posY << "," << outclust[clustct].posZ << ",";
     outstream1 << fixed << setprecision(4) << outclust[clustct].velX << "," << outclust[clustct].velY << "," << outclust[clustct].velZ << ",";
-    outstream1 << fixed << setprecision(6) << outclust[clustct].orbit_a << "," << outclust[clustct].orbit_e << "," << outclust[clustct].orbit_MJD << ",";
+    outstream1 << fixed << setprecision(6) << outclust[clustct].orbit_a << "," << outclust[clustct].orbit_e << "," << outclust[clustct].orbit_incl << "," << outclust[clustct].orbit_MJD << ",";
     outstream1 << fixed << setprecision(1) << outclust[clustct].orbitX << "," << outclust[clustct].orbitY << "," << outclust[clustct].orbitZ << ",";
     outstream1 << fixed << setprecision(4) << outclust[clustct].orbitVX << "," << outclust[clustct].orbitVY << "," << outclust[clustct].orbitVZ << "," << outclust[clustct].orbit_eval_count << "\n";
   }
@@ -694,5 +726,6 @@ int main(int argc, char *argv[])
     outstream1 << clust2det[clustct].i1 << "," << clust2det[clustct].i2 << "\n";
   }
   outstream1.close();
+  
   return(0);
 }

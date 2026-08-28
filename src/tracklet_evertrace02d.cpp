@@ -1585,12 +1585,12 @@ int main(int argc, char *argv[])
 	      if(status!=0) {
 		cerr << "Warning: evertrace01 failed with status " << status << " when fitting tracklet pair " << twinfitct << " and " << matchct << "\n";
 		outstream1 << "Warning: evertrace01 failed with status " << status << " when fitting tracklet pair " << twinfitct << " and " << matchct << "\n";
-	    bestchi = kep_chisq;
-	    astromRMS = kep_astromRMS;
-	    bestRA = KepfitRA;
-	    bestDec = KepfitDec;
-	    bestresid = Kepfitresid;
-	    out_statevec = kepout_statevec;
+		bestchi = kep_chisq;
+		astromRMS = kep_astromRMS;;
+		bestRA = KepfitRA;
+		bestDec = KepfitDec;
+		bestresid = Kepfitresid;
+		out_statevec = kepout_statevec;
 		cout << "\nRescue Keplerian fit returns chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 		outstream1 << "Rescue Keplerian fit returns chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 	      } else {
@@ -1782,12 +1782,12 @@ int main(int argc, char *argv[])
 	      if(status!=0) {
 		cerr << "Warning: evertrace01 failed with status " << status << " when fitting potential third tracklet " << matchct << "\n";
 		outstream1 << "Warning: evertrace01 failed with status " << status << " when fitting potential third tracklet " << matchct << "\n";
-	    bestchi = kep_chisq;
-	    astromRMS = kep_astromRMS;
-	    bestRA = KepfitRA;
-	    bestDec = KepfitDec;
-	    bestresid = Kepfitresid;
-	    out_statevec = kepout_statevec;
+		bestchi = kep_chisq;
+		astromRMS = kep_astromRMS;
+		bestRA = KepfitRA;
+		bestDec = KepfitDec;
+		bestresid = Kepfitresid;
+		out_statevec = kepout_statevec;
 		cout << "\nRescue Keplerian fit returns chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 		outstream1 << "Rescue Keplerian fit returns chisq, RMS = " << bestchi << " " << astromRMS << "\n";
 	      } else {

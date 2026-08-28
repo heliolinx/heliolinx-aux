@@ -207,7 +207,12 @@ int main(int argc, char *argv[])
     badread=0;
     getline(instream1,lnfromfile);
     year = month = day = hour = minute = 0;
-    second = MJD = RA = Dec = mag = 0.0;
+    second = MJD = mag = 0.0;
+    RA = -999.999;
+    Dec = -99.999;
+    sigmag = -9.99;
+    sig_across = -9.99;
+    sig_along = -9.99;
     if(verbose>0) cout << "Line read: " << lnfromfile << "\n";
     colct=startpoint=endpoint=0;
     read_attempts=0;
@@ -311,11 +316,11 @@ int main(int argc, char *argv[])
   outstream1.open(outfile);
   outstream1 << "#MJD,RA,Dec,mag,trail_len,trail_PA,sigmag,sig_across,sig_along,image,idstring,band,obscode,known_obj,det_qual,origindex\n";
   for(i=0;i<long(detvec.size());i++) {
-    outstream1 << fixed << setprecision(7) << detvec[i].MJD << "," << detvec[i].RA << "," << detvec[i].Dec << ",";
-    outstream1 << fixed << setprecision(4) << detvec[i].mag << ",";
+    outstream1 << fixed << setprecision(9) << detvec[i].MJD << "," << detvec[i].RA << "," << detvec[i].Dec << ",";
+    outstream1 << fixed << setprecision(6) << detvec[i].mag << ",";
     outstream1 << fixed << setprecision(2) << detvec[i].trail_len << "," << detvec[i].trail_PA << ",";
-    outstream1 << fixed << setprecision(4) << detvec[i].sigmag << ",";
-    outstream1 << fixed << setprecision(4) << detvec[i].sig_across << "," << detvec[i].sig_along << ",";
+    outstream1 << fixed << setprecision(6) << detvec[i].sigmag << ",";
+    outstream1 << fixed << setprecision(6) << detvec[i].sig_across << "," << detvec[i].sig_along << ",";
     outstream1 << detvec[i].image << "," << detvec[i].idstring << "," << detvec[i].band << ",";
     outstream1 << detvec[i].obscode << "," << detvec[i].known_obj << ","; 
     outstream1 << detvec[i].det_qual << "," << detvec[i].index << "\n"; 

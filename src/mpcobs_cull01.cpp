@@ -57,6 +57,9 @@ int main(int argc, char *argv[])
   badcodes.push_back("273");
   badcodes.push_back("274");
   badcodes.push_back("275");
+  badcodes.push_back("309");
+  badcodes.push_back("381");
+  badcodes.push_back("470");
   
   if(argc<0 && argc<1) {
     show_usage();

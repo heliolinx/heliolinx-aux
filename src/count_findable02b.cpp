@@ -49,7 +49,7 @@
 
 static void show_usage()
 {
-  cerr << "Usage: count_finddable02b -dets detfile -colformat column format file -maxtime max inter-image time interval (hr)/ \n";
+  cerr << "Usage: count_findable02b -dets detfile -colformat column format file -maxtime max inter-image time interval (hr)/ \n";
   cerr << "-maxvel maximum angular velocity (deg/day) -mintracktime min tracklet time span (sec)\n";
   cerr << "-outfile output file\n";
   cerr << "\nor, at minimum\n\n";

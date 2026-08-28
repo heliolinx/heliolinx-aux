@@ -201,7 +201,7 @@ int main(int argc, char *argv[])
   }
   outstream1 << "trkSub";
   for(j=6;j<long(trkSub.size());j++) outstream1 << " ";
-  outstream1 << "|obsSubID            |mode|stn |obsTime                 |ra        |dec       |rmsRA|rmsDec|astCat|mag   |rmsMag|band\n";
+  outstream1 << "|obsSubID            |mode|stn |obsTime                 |ra         |dec        |rmsRA |rmsDec|astCat|mag    |rmsMag |band\n";
   for(i=0; i<long(detvec.size()); i++) {
     if(permID.size()>0) {
       outstream1 << permID;
@@ -243,21 +243,21 @@ int main(int argc, char *argv[])
     outstream1 << fixed << setprecision(0) << minute << ":";
     if(second<9.9995) outstream1 << "0";
     outstream1 << fixed << setprecision(3) << second << "Z|";
-    if(detvec[i].RA>=99.9999995) outstream1  << fixed << setprecision(6) << detvec[i].RA << "|";
-    else if(detvec[i].RA>=9.9999995) outstream1  << fixed << setprecision(6) << " " << detvec[i].RA << "|";
+    if(detvec[i].RA>=99.99999995) outstream1  << fixed << setprecision(7) << detvec[i].RA << "|";
+    else if(detvec[i].RA>=9.99999995) outstream1  << fixed << setprecision(7) << " " << detvec[i].RA << "|";
     else outstream1  << fixed << setprecision(6) << "  " << detvec[i].RA << "|";
-    if(detvec[i].Dec<0.0 && fabs(detvec[i].Dec)>=9.9999995) outstream1  << fixed << setprecision(6) << detvec[i].Dec << "|";
-    else if(detvec[i].Dec<0.0) outstream1  << fixed << setprecision(6) << " " << detvec[i].Dec << "|";
-    else if(detvec[i].Dec>=9.9999995) outstream1  << fixed << setprecision(6) << " " << detvec[i].Dec << "|";
-    else outstream1  << fixed << setprecision(6) << "  " << detvec[i].Dec << "|";
+    if(detvec[i].Dec<0.0 && fabs(detvec[i].Dec)>=9.99999995) outstream1  << fixed << setprecision(7) << detvec[i].Dec << "|";
+    else if(detvec[i].Dec<0.0) outstream1  << fixed << setprecision(7) << " " << detvec[i].Dec << "|";
+    else if(detvec[i].Dec>=9.99999995) outstream1  << fixed << setprecision(7) << " " << detvec[i].Dec << "|";
+    else outstream1  << fixed << setprecision(7) << "  " << detvec[i].Dec << "|";
     if(detvec[i].sig_across>0 && detvec[i].sig_along>0) {
-      outstream1  << fixed << setprecision(3) << detvec[i].sig_along << " |";
-      outstream1  << fixed << setprecision(3) << detvec[i].sig_across << "|";
+      outstream1  << fixed << setprecision(4) << detvec[i].sig_along << "|";
+      outstream1  << fixed << setprecision(4) << detvec[i].sig_across << "|";
     } else outstream1 << "    |      |";
     outstream1  << "Gaia2 |";
-    if(detvec[i].mag>=9.9995) outstream1  << fixed << detvec[i].mag << "|";
-    else outstream1  << fixed << " " << detvec[i].mag << "|";
-    outstream1  << fixed << detvec[i].sigmag << " |";
+    if(detvec[i].mag>=9.99995) outstream1  << fixed << detvec[i].mag << "|";
+    else outstream1  << fixed << setprecision(4) << " " << detvec[i].mag << "|";
+    outstream1  << fixed << setprecision(4) << detvec[i].sigmag << " |";
     outstream1  << detvec[i].band << "\n";
   }
   outstream1.close();

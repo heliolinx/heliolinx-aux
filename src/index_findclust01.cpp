@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
     cerr << "ERROR: could not read any lines from index list " << indexlist << "\n";
     return(1);
   }
-  cout << "Read " << indices.size() << " lines from index list file " << clust2detfile << "\n";
+  cout << "Read " << indices.size() << " lines from index list file " << indexlist << "\n";
   sort(indices.begin(),indices.end());
   
   inclust2det={};

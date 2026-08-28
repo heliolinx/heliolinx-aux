@@ -31,9 +31,9 @@
 // uncertainty must be in arcseconds.
 static void show_usage()
 {
-  cerr << "Usage: solarsyst_sim01a -cfg configfile -ranseed random_number_seed -images imfile -imrad image radius(deg) -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -simnum simnum -outfile outfile \n";
+  cerr << "Usage: solarsyst_sim01a -cfg configfile -ranseed random_number_seed -images imfile -imrad image radius(deg) -mjdstart mjdstart -mjdend mjdend -astromerr 1-D astrometric error (arcsec) -obslon obslon -plxcos plxcos -plxsin plxsin -simnum simnum -outfile outfile \n";
 }
-    
+
 int main(int argc, char *argv[])
 {
   int i=0;
@@ -490,18 +490,7 @@ int main(int argc, char *argv[])
 	show_usage();
 	return(1);
       }
-    }   else if(string(argv[i]) == "-mjdend" || string(argv[i]) == "-me" || string(argv[i]) == "-MJDend" || string(argv[i]) == "--mjdend" || string(argv[i]) == "--MJDend" || string(argv[i]) == "--ModifiedJulianDayend" || string(argv[i]) == "--modifiedjuliandayend") {
-      if(i+1 < argc) {
-	//There is still something to read;
-	mjdend=stold(argv[++i]);
-	i++;
-      }
-      else {
-	cerr << "MJD end keyword supplied with no corresponding argument\n";
-	show_usage();
-	return(1);
-      }
-    }  else if(string(argv[i]) == "-astromerr" || string(argv[i]) == "-astromsig" || string(argv[i]) == "-as"  || string(argv[i]) == "-sigast"  || string(argv[i]) == "-sigastrom" || string(argv[i]) == "--astromerror" || string(argv[i]) == "--astromsigma") {
+    } else if(string(argv[i]) == "-astromerr" || string(argv[i]) == "-astromsig" || string(argv[i]) == "-as"  || string(argv[i]) == "-sigast"  || string(argv[i]) == "-sigastrom" || string(argv[i]) == "--astromerror" || string(argv[i]) == "--astromsigma") {
       if(i+1 < argc) {
 	//There is still something to read;
 	astromsigma=stold(argv[++i]);
@@ -509,6 +498,39 @@ int main(int argc, char *argv[])
       }
       else {
 	cerr << "Astrometric error keyword supplied with too few corresponding arguments\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-obslon") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	obslon=stold(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Observatory longitude keyword supplied with too few corresponding arguments\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-plxcos") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	plxcos=stold(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Observatory plxcos keyword supplied with too few corresponding arguments\n";
+	show_usage();
+	return(1);
+      }
+    } else if(string(argv[i]) == "-plxsin") {
+      if(i+1 < argc) {
+	//There is still something to read;
+	plxsin=stold(argv[++i]);
+	i++;
+      }
+      else {
+	cerr << "Observatory plxsin keyword supplied with too few corresponding arguments\n";
 	show_usage();
 	return(1);
       }
@@ -546,6 +568,7 @@ int main(int argc, char *argv[])
   cout << "input image file " << imfile << "\n";
   cout << "input starting MJD " << mjdstart << "\n";
   cout << "input ending MJD " << mjdend << "\n";
+  cout << "Observatory parameters: " << obslon << " " << plxcos << " " << plxsin << "\n";
   cout << "Perihelion distance must be between " << minperidist << " and " << maxperidist << "\n";
   cout << "Aphelion distance must be between " << minapdist << " and " << maxapdist << "\n";
   cout << "Inclination follows a Gaussian distribution with mean = " << incmean << " and sigma = " << incsigma << "\n";
@@ -788,6 +811,7 @@ int main(int argc, char *argv[])
 	    // Object might still be visible, calculate its position
 	    // Instantaneous velocity
 	    planetpos01LD(imageMJD[imct],polyorder,targMJD,targvel,imagevel);
+	    
 	    // Initial approximation of the coordinates relative to the observer
 	    imagepos.x -= observerpos[imct].x;
 	    imagepos.y -= observerpos[imct].y;

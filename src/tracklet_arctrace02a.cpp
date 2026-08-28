@@ -930,7 +930,7 @@ int main(int argc, char *argv[])
 	      }
 	      for(obsct=0;obsct<long(obsMJD.size());obsct++) {
 		for(tct=0;tct<long(trkvec.size());tct++) {
-		  if(fabs(obsMJD[obsct]-image_log[detvec[trkvec[tct]].image].MJD)<IMAGETIMETOL) matchinput=1;
+		  if(fabs(obsMJD[obsct]-image_log[detvec[trkvec[tct]].image].MJD)<IMAGETIMETOL/SOLARDAY) matchinput=1;
 		}
 	      }
 	      if(matchinput==0) {
